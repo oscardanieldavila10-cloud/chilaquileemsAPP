@@ -25,6 +25,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Fraunces:ital,wght@0,600;0,700;1,600;1,700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<!-- Mapa de selección de ubicación: OpenStreetMap + Leaflet, gratuito y sin
+     API key ni tarjeta de crédito (a diferencia de Google Maps). -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   tailwind.config = {
     theme: {
@@ -228,7 +232,7 @@
     <div class="inline-block rounded-2xl px-4 py-2.5 sm:px-5 sm:py-3 glass-panel">
       <p class="text-[28px] sm:text-[40px] leading-[0.95]" style="font-family: 'Fraunces', serif; font-style: italic; font-weight: 700; background: linear-gradient(120deg, #FFFFFF 0%, #F3D9A0 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 1px 3px rgba(0,0,0,0.35);">Chilaquileems</p>
       <p class="font-display font-600 text-white/90 text-[12.5px] sm:text-[14px] mt-0.5 tracking-wide" style="text-shadow: 0 1px 3px rgba(0,0,0,0.4);">Antojitos caseros, hechos con cariño</p>
-      <div id="saludoPersonalizado" class="hidden mt-2 pt-2 border-t border-white/20"></div>
+      <div id="saludoPersonalizado" class="hidden mt-2.5"></div>
     </div>
   </div>
   <div id="heroIconsOverlay" class="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 py-3 sm:px-5">
@@ -474,6 +478,7 @@
       <button id="closeMisPedidos" class="w-8 h-8 rounded-full bg-line/70 flex items-center justify-center text-lg leading-none shrink-0">&times;</button>
     </div>
     <div class="flex-1 overflow-y-auto min-h-0 p-5">
+      <div id="misFavoritosSection" class="mb-5"></div>
       <div id="misPedidosList" class="space-y-3"></div>
     </div>
   </div>
@@ -535,6 +540,23 @@
   </div>
 </div>
 
+<!-- Mapa interactivo para elegir ubicación exacta (OpenStreetMap + Leaflet) —
+     reemplaza la captura de GPS "a ciegas" que dejaba al cliente sin
+     confirmación visual y sin dirección de texto llenada sola. -->
+<div id="mapaUbicacionModal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center">
+  <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl flex flex-col" style="height: min(88vh, 640px);">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-line shrink-0">
+      <p class="font-display font-600 text-[15px]">Ajusta el pin a tu ubicación</p>
+      <button id="cerrarMapaUbicacion" type="button" class="w-8 h-8 rounded-full bg-line/50 flex items-center justify-center text-muted">×</button>
+    </div>
+    <div id="mapaUbicacionDiv" class="flex-1 min-h-0"></div>
+    <div class="p-4 border-t border-line shrink-0 space-y-2">
+      <p class="text-[12px] text-muted text-center">Arrastra el pin si no quedó exacto</p>
+      <button id="confirmarMapaUbicacion" class="w-full btn-gradient text-white font-display font-600 rounded-2xl py-3 text-[14px]">Usar esta ubicación</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -577,7 +599,23 @@ const CONFIG = {
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InloaXJpdWhzcG9mcXRoZXd4d2JjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMzgxNTksImV4cCI6MjEwMTcxNDE1OX0.JoMn24FPb1LH2MnFgFe_rdFUzZUHLKirbQPoBw_SMuo',
   WHATSAPP_NUMBER: '525535894746', // WhatsApp de tu hermano
   NEGOCIO_NOMBRE: 'Chilaquileems',
+  // Datos bancarios para mostrar solo cuando el cliente elige "Transferencia"
+  // como forma de pago en el checkout. Rellena con los datos reales del
+  // negocio — mientras CLABE esté vacía, la cajita de transferencia no se muestra.
+  DATOS_BANCARIOS: {
+    CLABE: '', // ej. '012180012345678901' (18 dígitos)
+    BENEFICIARIO: '',
+    BANCO: '',
+  },
+  // Punto donde se centra el mapa de ubicación si el navegador no puede
+  // detectar el GPS del cliente (o mientras carga). Pon aquí las coordenadas
+  // reales del negocio — puedes sacarlas de Google Maps: clic derecho sobre
+  // tu ubicación → el primer número es la latitud, el segundo la longitud.
+  UBICACION_NEGOCIO: { lat: 19.4326, lng: -99.1332 }, // placeholder: CDMX centro — CAMBIAR
 };
+
+const TRANSFERENCIA_HABILITADA = !!(CONFIG.DATOS_BANCARIOS && CONFIG.DATOS_BANCARIOS.CLABE);
+
 
 const DEMO_MODE = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL === 'TU_SUPABASE_URL';
 const supabase = DEMO_MODE ? null : createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
@@ -7027,6 +7065,19 @@ function actualizarCajaCheemsCheckout(cheemsCount) {
 }
 let notasEspeciales = ''; // instrucciones especiales del cliente
 let regaloActivo = false; // true si el pedido es un regalo para alguien más
+
+// Datos de texto del checkout (nombre/teléfono/dirección/regalo) — viven en
+// estas variables globales, NO solo en el DOM, porque renderCart() reconstruye
+// el formulario cada vez que cambia el carrito (agregar/quitar/editar un
+// platillo) y eso borraría lo que el cliente ya había escrito si dependiéramos
+// solo de los inputs. El mismo patrón que ya usábamos para notasEspeciales.
+let checkoutNombre = '';
+let checkoutTelefono = '';
+let checkoutDireccion = '';
+let checkoutNombreDestinatario = '';
+let checkoutTelefonoDestinatario = '';
+let checkoutMensajeRegalo = '';
+
 function actualizarToggleRegaloTile() {
   const track = document.getElementById('regaloToggleTrack');
   const knob = document.getElementById('regaloToggleKnob');
@@ -7068,7 +7119,7 @@ async function cargarMenu() {
 
   const [{ data: cats }, { data: prods }, { data: grupos }, { data: opciones }, { data: pg }, { data: zonas }, { data: config }] = await Promise.all([
     supabase.from('categorias').select('*').order('orden'),
-    supabase.from('productos').select('id, categoria_id, nombre, descripcion, precio_base, imagen_url, disponible, orden, subcategoria, grupo_subcategoria, destacado').order('orden').order('id'),
+    supabase.from('productos').select('id, categoria_id, nombre, descripcion, precio_base, imagen_url, disponible, orden, subcategoria, grupo_subcategoria, destacado').eq('descontinuado', false).order('orden').order('id'),
     supabase.from('grupos').select('*'),
     supabase.from('opciones').select('*').order('orden'),
     supabase.from('producto_grupos').select('*'),
@@ -8145,11 +8196,18 @@ function renderCart() {
     footer.innerHTML = '';
     vaciarBtn.classList.add('hidden');
     vaciarBtn.classList.remove('flex');
+    borrarProgresoCheckout();
     return;
   }
 
   vaciarBtn.classList.remove('hidden');
   vaciarBtn.classList.add('flex');
+
+  // Autocompletar nombre/teléfono desde el perfil guardado localmente, sin
+  // esperar ninguna consulta a Supabase — antes solo el teléfono se rellenaba
+  // solo y el nombre se quedaba en blanco aunque el cliente ya tuviera cuenta.
+  if (!checkoutNombre && perfilUsuario?.apodo) checkoutNombre = perfilUsuario.apodo;
+  if (!checkoutTelefono && perfilUsuario?.telefono) checkoutTelefono = perfilUsuario.telefono;
 
   const { items: recs, tieneBebida } = getRecomendaciones();
   const recsHtml = recs.length ? `
@@ -8234,26 +8292,26 @@ function renderCart() {
         <p class="text-[12px] text-muted -mt-0.5">Estos datos son de la persona que va a <strong>recibir</strong> el pedido — la dirección de abajo también es la suya.</p>
         <div>
           <label class="block text-[12px] font-medium text-muted mb-1">Nombre de quien lo recibe</label>
-          <input id="inpNombreDestinatario" type="text" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="¿Cómo se llama?" />
+          <input id="inpNombreDestinatario" type="text" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="¿Cómo se llama?" value="${escapeHtml(checkoutNombreDestinatario)}" />
         </div>
         <div>
           <label class="block text-[12px] font-medium text-muted mb-1">Teléfono de quien lo recibe</label>
-          <input id="inpTelefonoDestinatario" type="tel" maxlength="10" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="55XXXXXXXX" />
+          <input id="inpTelefonoDestinatario" type="tel" maxlength="10" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="55XXXXXXXX" value="${escapeHtml(checkoutTelefonoDestinatario)}" />
         </div>
         <div>
           <label class="block text-[12px] font-medium text-muted mb-1">Mensaje para el regalo <span class="font-normal">(opcional)</span></label>
-          <textarea id="inpMensajeRegalo" rows="2" maxlength="200" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="Ej. ¡Feliz cumpleaños! Espero que lo disfrutes 🎉"></textarea>
+          <textarea id="inpMensajeRegalo" rows="2" maxlength="200" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="Ej. ¡Feliz cumpleaños! Espero que lo disfrutes 🎉">${escapeHtml(checkoutMensajeRegalo)}</textarea>
         </div>
       </div>
 
       <div>
         <label class="block text-[12px] font-medium text-muted mb-1" id="lblTuNombre">Tu nombre</label>
-        <input id="inpNombre" type="text" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="¿Cómo te llamas?" />
+        <input id="inpNombre" type="text" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="¿Cómo te llamas?" value="${escapeHtml(checkoutNombre)}" />
       </div>
 
       <div>
         <label class="block text-[12px] font-medium text-muted mb-1" id="lblTuTelefono">Teléfono (10 dígitos)</label>
-        <input id="inpTelefono" type="tel" maxlength="10" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="55XXXXXXXX" />
+        <input id="inpTelefono" type="tel" maxlength="10" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="55XXXXXXXX" value="${escapeHtml(checkoutTelefono)}" />
       </div>
       <div id="savedAddresses" class="hidden space-y-1.5"></div>
 
@@ -8262,8 +8320,8 @@ function renderCart() {
           <label class="block text-[12px] font-medium text-muted" id="lblDireccion">Dirección de entrega</label>
           <button type="button" id="btnUsarGPS" class="text-[11.5px] font-medium text-accent flex items-center gap-1">📍 Usar mi ubicación</button>
         </div>
-        <textarea id="inpDireccion" rows="2" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="Calle, número, colonia, referencias"></textarea>
-        <p id="gpsStatus" class="hidden text-[11.5px] text-forest mt-1 font-medium">📍 Ubicación exacta capturada — el repartidor la verá en el mapa sin errores.</p>
+        <textarea id="inpDireccion" rows="2" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" placeholder="Calle, número, colonia, referencias">${escapeHtml(checkoutDireccion)}</textarea>
+        <p id="gpsStatus" class="${gpsCoords ? '' : 'hidden'} text-[11.5px] text-forest mt-1 font-medium">📍 Ubicación exacta capturada — el repartidor la verá en el mapa sin errores.</p>
       </div>
 
       ${ZONAS.length ? `
@@ -8287,6 +8345,19 @@ function renderCart() {
             <span class="block text-center rounded-xl border border-line py-2.5 text-[13px] peer-checked:bg-gradient-to-b peer-checked:from-[#1EBAAE] peer-checked:to-[#0B6E64] peer-checked:text-white peer-checked:border-transparent peer-checked:shadow-md transition">Transferencia</span>
           </label>
         </div>
+        ${TRANSFERENCIA_HABILITADA ? `
+        <div id="datosBancariosBox" class="hidden mt-2.5 bg-[#F3F1EC] border border-line rounded-xl p-3.5">
+          <p class="text-[11.5px] text-muted mb-2">Transfiere el total a esta cuenta y manda tu comprobante por WhatsApp cuando confirmes el pedido:</p>
+          <div class="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border border-line">
+            <div class="min-w-0">
+              <p class="text-[10.5px] text-muted leading-tight">CLABE</p>
+              <p id="clabeTexto" class="font-mono text-[13.5px] font-medium tracking-wide truncate">${CONFIG.DATOS_BANCARIOS.CLABE}</p>
+            </div>
+            <button type="button" id="btnCopiarClabe" class="shrink-0 text-[11.5px] font-display font-600 text-forest border border-forest/30 rounded-lg px-2.5 py-1.5">Copiar</button>
+          </div>
+          ${CONFIG.DATOS_BANCARIOS.BENEFICIARIO ? `<p class="text-[11.5px] text-ink mt-2"><span class="text-muted">Beneficiario:</span> ${escapeHtml(CONFIG.DATOS_BANCARIOS.BENEFICIARIO)}</p>` : ''}
+          ${CONFIG.DATOS_BANCARIOS.BANCO ? `<p class="text-[11.5px] text-ink"><span class="text-muted">Banco:</span> ${escapeHtml(CONFIG.DATOS_BANCARIOS.BANCO)}</p>` : ''}
+        </div>` : ''}
       </div>
 
       <div>
@@ -8424,32 +8495,55 @@ function renderCart() {
   if (inpNotas) {
     inpNotas.addEventListener('input', () => {
       notasEspeciales = inpNotas.value;
+      guardarProgresoCheckout();
     });
+  }
+
+  // Captura en vivo de nombre/teléfono/dirección/datos de regalo hacia las
+  // variables globales — así sobreviven si renderCart() se vuelve a llamar
+  // (agregar/quitar un platillo) y también quedan listas para respaldarse
+  // en localStorage por si el cliente cierra la app de verdad a medio pedido.
+  const camposTexto = [
+    ['inpNombre', v => checkoutNombre = v],
+    ['inpTelefono', v => checkoutTelefono = v],
+    ['inpDireccion', v => checkoutDireccion = v],
+    ['inpNombreDestinatario', v => checkoutNombreDestinatario = v],
+    ['inpTelefonoDestinatario', v => checkoutTelefonoDestinatario = v],
+    ['inpMensajeRegalo', v => checkoutMensajeRegalo = v],
+  ];
+  camposTexto.forEach(([id, setter]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { setter(el.value); guardarProgresoCheckout(); });
+  });
+
+  // Mostrar la cajita de datos bancarios solo cuando el cliente elige
+  // "Transferencia", y el botón para copiar únicamente el número de CLABE
+  // (no el resto de los datos) con confirmación visual.
+  const datosBancariosBox = document.getElementById('datosBancariosBox');
+  if (datosBancariosBox) {
+    document.querySelectorAll('input[name="pago"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        datosBancariosBox.classList.toggle('hidden', radio.value !== 'transferencia' || !radio.checked);
+      });
+    });
+    const btnCopiarClabe = document.getElementById('btnCopiarClabe');
+    if (btnCopiarClabe) {
+      btnCopiarClabe.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(CONFIG.DATOS_BANCARIOS.CLABE);
+          const original = btnCopiarClabe.textContent;
+          btnCopiarClabe.textContent = '¡Copiada!';
+          setTimeout(() => { btnCopiarClabe.textContent = original; }, 1800);
+        } catch (e) {
+          toast('No se pudo copiar. Selecciona el número a mano.', 'error');
+        }
+      });
+    }
   }
 
   const btnGPS = document.getElementById('btnUsarGPS');
   if (btnGPS) {
-    btnGPS.addEventListener('click', () => {
-      if (!navigator.geolocation) {
-        toast('Tu navegador no permite compartir ubicación.', 'error');
-        return;
-      }
-      const originalText = btnGPS.textContent;
-      btnGPS.textContent = 'Ubicando...';
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          gpsCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          btnGPS.textContent = originalText;
-          document.getElementById('gpsStatus').classList.remove('hidden');
-          toast('Ubicación capturada ✓');
-        },
-        () => {
-          btnGPS.textContent = originalText;
-          toast('No pudimos obtener tu ubicación. Escribe la dirección con el mayor detalle posible.', 'error');
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    });
+    btnGPS.addEventListener('click', abrirMapaUbicacion);
   }
 
   // el texto de la dirección sirve para referencias del repartidor; el pin GPS (si se capturó) se usa aparte para el mapa exacto
@@ -8457,15 +8551,14 @@ function renderCart() {
   document.getElementById('confirmarPedido').addEventListener('click', confirmarPedido);
   document.getElementById('inpTelefono').addEventListener('blur', buscarClienteRecurrente);
 
-  // Si ya tenemos un perfil guardado (apodo + teléfono), precargamos el teléfono
-  // para que no tenga que volver a escribirlo, y disparamos la búsqueda de dirección guardada.
-  if (perfilUsuario?.telefono) {
-    const telInput = document.getElementById('inpTelefono');
-    if (!telInput.value.trim()) {
-      telInput.value = perfilUsuario.telefono;
-      buscarClienteRecurrente();
-    }
+  // Si ya tenemos un teléfono (del perfil guardado o de lo que el cliente ya
+  // escribió en esta sesión), buscamos si es cliente recurrente para ofrecer
+  // sus direcciones guardadas y, si Supabase tiene su nombre completo, usarlo.
+  if (checkoutTelefono && /^\d{10}$/.test(checkoutTelefono)) {
+    buscarClienteRecurrente();
   }
+
+  guardarProgresoCheckout();
 }
 
 // ============================================================
@@ -8486,7 +8579,12 @@ async function buscarClienteRecurrente() {
   }
 
   const nombreInput = document.getElementById('inpNombre');
-  if (!nombreInput.value.trim() && cliente.nombre) nombreInput.value = cliente.nombre;
+  const nombreDeSupabase = cliente.nombre || cliente.apodo; // algunos registros solo tienen apodo, no nombre
+  if (!nombreInput.value.trim() && nombreDeSupabase) {
+    nombreInput.value = nombreDeSupabase;
+    checkoutNombre = nombreDeSupabase;
+    guardarProgresoCheckout();
+  }
 
   actualizarCajaCheemsCheckout(cliente.cheems || 0);
 
@@ -8679,6 +8777,12 @@ async function confirmarPedido() {
     redimirCheemsEstePedido = false;
     notasEspeciales = '';
     regaloActivo = false;
+    checkoutDireccion = '';
+    checkoutNombreDestinatario = '';
+    checkoutTelefonoDestinatario = '';
+    checkoutMensajeRegalo = '';
+    gpsCoords = null;
+    borrarProgresoCheckout(); // pedido confirmado con éxito, ya no hay nada que recuperar
     actualizarCartUI();
     cerrarCart();
     volverACategorias(true);
@@ -8709,6 +8813,158 @@ document.getElementById('closeTicket').addEventListener('click', () => {
 // ============================================================
 // UI: abrir/cerrar carrito
 // ============================================================
+// ============================================================
+// PERSISTENCIA DEL PEDIDO EN PROGRESO (sobrevive a que el cliente cierre
+// la app de verdad — por ejemplo al cambiar a WhatsApp en el paso final del
+// propio checkout, o si el celular mata la pestaña en segundo plano).
+// Sin esto, el punto 7 (variables globales en memoria) no basta: la memoria
+// se pierde igual si la pestaña se cierra por completo.
+// ============================================================
+const CHECKOUT_PROGRESO_KEY = 'chilaquilems_pedido_en_progreso';
+const CHECKOUT_PROGRESO_MAX_HORAS = 48;
+
+function guardarProgresoCheckout() {
+  try {
+    if (!cart.length) { localStorage.removeItem(CHECKOUT_PROGRESO_KEY); return; }
+    localStorage.setItem(CHECKOUT_PROGRESO_KEY, JSON.stringify({
+      cart, checkoutNombre, checkoutTelefono, checkoutDireccion,
+      checkoutNombreDestinatario, checkoutTelefonoDestinatario, checkoutMensajeRegalo,
+      notasEspeciales, regaloActivo, propinaSeleccionada, gpsCoords,
+      guardado_en: new Date().toISOString(),
+    }));
+  } catch (e) { /* localStorage lleno o bloqueado — no es crítico, seguimos sin persistir */ }
+}
+
+function borrarProgresoCheckout() {
+  localStorage.removeItem(CHECKOUT_PROGRESO_KEY);
+}
+
+// Se llama una sola vez al arrancar la app, después de que el catálogo (PRODUCTOS)
+// ya está cargado — así podemos revalidar cada platillo guardado contra el
+// menú vigente (precio actual, disponibilidad) en vez de asumir en silencio
+// que sigue igual. Reutiliza exactamente la misma lógica de reconstrucción
+// que "Repetir pedido" en Mis Pedidos, para no duplicar reglas de validación.
+function restaurarProgresoCheckoutSiExiste() {
+  let datos;
+  try { datos = JSON.parse(localStorage.getItem(CHECKOUT_PROGRESO_KEY) || 'null'); }
+  catch (e) { datos = null; }
+  if (!datos || !Array.isArray(datos.cart) || !datos.cart.length) return;
+
+  const horas = (Date.now() - new Date(datos.guardado_en || 0).getTime()) / 36e5;
+  if (!(horas >= 0) || horas > CHECKOUT_PROGRESO_MAX_HORAS) { borrarProgresoCheckout(); return; }
+
+  // repetirItemsPedido espera la forma "guardada" de un pedido (producto_id,
+  // cantidad, modificadores con nombre de grupo/opción, precio_unitario viejo
+  // para detectar cambios) — el carrito en curso ya tiene exactamente esa forma.
+  cart = []; // repetirItemsPedido empuja sobre "cart", así que arrancamos limpio
+  checkoutNombre = datos.checkoutNombre || '';
+  checkoutTelefono = datos.checkoutTelefono || '';
+  checkoutDireccion = datos.checkoutDireccion || '';
+  checkoutNombreDestinatario = datos.checkoutNombreDestinatario || '';
+  checkoutTelefonoDestinatario = datos.checkoutTelefonoDestinatario || '';
+  checkoutMensajeRegalo = datos.checkoutMensajeRegalo || '';
+  notasEspeciales = datos.notasEspeciales || '';
+  regaloActivo = !!datos.regaloActivo;
+  propinaSeleccionada = datos.propinaSeleccionada || { tipo: '0', monto: 0 };
+  gpsCoords = datos.gpsCoords || null;
+
+  repetirItemsPedido(datos.cart); // ya se encarga de: validar disponibilidad, recalcular precios, abrir el carrito y avisar con un toast si algo cambió
+  guardarProgresoCheckout(); // vuelve a guardar la versión ya validada/corregida
+}
+
+// ============================================================
+// MAPA DE UBICACIÓN (OpenStreetMap + Leaflet) — reemplaza la captura de GPS
+// "a ciegas": el cliente ve un mapa con pin arrastrable, y al confirmar se
+// traduce la coordenada a una dirección de texto real (Nominatim) que se
+// escribe sola en el campo de dirección, en vez de dejarlo vacío.
+// ============================================================
+let mapaUbicacionInstance = null;
+let mapaUbicacionMarker = null;
+
+function abrirMapaUbicacion() {
+  document.getElementById('mapaUbicacionModal').classList.remove('hidden');
+
+  const centroInicial = gpsCoords || CONFIG.UBICACION_NEGOCIO;
+
+  if (!mapaUbicacionInstance) {
+    mapaUbicacionInstance = L.map('mapaUbicacionDiv').setView([centroInicial.lat, centroInicial.lng], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap',
+    }).addTo(mapaUbicacionInstance);
+    mapaUbicacionMarker = L.marker([centroInicial.lat, centroInicial.lng], { draggable: true }).addTo(mapaUbicacionInstance);
+  } else {
+    mapaUbicacionInstance.setView([centroInicial.lat, centroInicial.lng], 16);
+    mapaUbicacionMarker.setLatLng([centroInicial.lat, centroInicial.lng]);
+  }
+
+  // El modal estaba oculto (display:none) cuando Leaflet midió el contenedor
+  // la primera vez, así que el mapa sale con tamaño incorrecto si no le
+  // avisamos que ya es visible.
+  setTimeout(() => mapaUbicacionInstance.invalidateSize(), 50);
+
+  // Si el navegador puede detectar el GPS real del cliente y todavía no
+  // tenía una ubicación guardada de antes, centramos ahí en cuanto responda
+  // (sin bloquear la apertura del mapa mientras tanto).
+  if (!gpsCoords && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const detectado = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        mapaUbicacionInstance.setView([detectado.lat, detectado.lng], 17);
+        mapaUbicacionMarker.setLatLng([detectado.lat, detectado.lng]);
+      },
+      () => { /* si falla, el cliente ya ve el mapa centrado en el negocio y puede arrastrar el pin a mano */ },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+}
+
+function cerrarMapaUbicacion() {
+  document.getElementById('mapaUbicacionModal').classList.add('hidden');
+}
+
+async function confirmarMapaUbicacion() {
+  const { lat, lng } = mapaUbicacionMarker.getLatLng();
+  gpsCoords = { lat, lng };
+
+  const btn = document.getElementById('confirmarMapaUbicacion');
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Buscando dirección...';
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, {
+      headers: { 'Accept-Language': 'es' },
+    });
+    if (!resp.ok) throw new Error('geocoding falló');
+    const data = await resp.json();
+    const direccionTexto = data.display_name;
+    if (direccionTexto) {
+      checkoutDireccion = direccionTexto;
+      const inpDireccion = document.getElementById('inpDireccion');
+      if (inpDireccion) inpDireccion.value = direccionTexto;
+      toast('Ubicación y dirección capturadas ✓');
+    } else {
+      toast('Ubicación capturada — escribe la dirección con detalle por si acaso.', 'error');
+    }
+  } catch (e) {
+    // Sin internet o el servicio de geocodificación falló: el pin GPS ya
+    // quedó guardado igual, solo avisamos que la dirección de texto no se
+    // pudo llenar sola, para que el cliente no se quede atorado en el paso.
+    toast('No pudimos traducir la ubicación a dirección — escríbela a mano, por favor.', 'error');
+  } finally {
+    btn.textContent = textoOriginal;
+    btn.disabled = false;
+  }
+
+  document.getElementById('gpsStatus').classList.remove('hidden');
+  guardarProgresoCheckout();
+  cerrarMapaUbicacion();
+}
+
+document.getElementById('cerrarMapaUbicacion').addEventListener('click', cerrarMapaUbicacion);
+document.getElementById('confirmarMapaUbicacion').addEventListener('click', confirmarMapaUbicacion);
+
 function abrirCart() { history.pushState({ cartAbierto: true }, '', location.href); renderCart(); document.getElementById('cartDrawer').classList.remove('hidden'); }
 function cerrarCartUI() { document.getElementById('cartDrawer').classList.add('hidden'); }
 function cerrarCart() {
@@ -8872,6 +9128,7 @@ document.getElementById('btnAbrirMisPedidos').addEventListener('click', () => {
 function abrirMisPedidos() {
   history.pushState({ misPedidosAbierto: true }, '', location.href);
   document.getElementById('misPedidosPanel').classList.remove('hidden');
+  renderMisFavoritos();
   renderMisPedidosList();
 }
 function cerrarMisPedidosUI() { document.getElementById('misPedidosPanel').classList.add('hidden'); }
@@ -8906,6 +9163,67 @@ document.getElementById('linkAMiPerfilDesdeCheems').addEventListener('click', ()
   cerrarMisCheemsUI();
   abrirMiPerfil();
 });
+
+// "Tus favoritos" — top 3 platillos más pedidos por ESTE cliente en ESTE
+// celular. Se calcula sobre el mismo historial local de "Mis Pedidos" (nunca
+// se consulta Supabase por teléfono, por la misma razón de privacidad de
+// guardarHistorialPedidoLocal): así garantizamos que nadie más pueda ver
+// los gustos de otra persona con solo saber su número.
+function renderMisFavoritos() {
+  const cont = document.getElementById('misFavoritosSection');
+  if (!cont) return;
+  let historial = [];
+  try { historial = JSON.parse(localStorage.getItem('chilaquilems_historial_pedidos') || '[]'); }
+  catch (e) { historial = []; }
+
+  // Con menos de 2 pedidos guardados, "tu top 3" no dice nada útil todavía.
+  if (historial.length < 2) { cont.innerHTML = ''; return; }
+
+  const conteo = {}; // producto_id -> { nombre, veces, cantidadTotal }
+  historial.forEach(ped => {
+    (ped.items || []).forEach(item => {
+      if (!item.producto_id) return;
+      if (!conteo[item.producto_id]) conteo[item.producto_id] = { nombre: item.nombre, veces: 0, cantidadTotal: 0 };
+      conteo[item.producto_id].veces += 1;
+      conteo[item.producto_id].cantidadTotal += (item.cantidad || 1);
+    });
+  });
+
+  const top3 = Object.entries(conteo)
+    .sort((a, b) => b[1].cantidadTotal - a[1].cantidadTotal)
+    .slice(0, 3);
+
+  if (!top3.length) { cont.innerHTML = ''; return; }
+
+  const medallas = ['🥇', '🥈', '🥉'];
+  cont.innerHTML = `
+    <p class="font-display font-700 text-[13.5px] text-ink mb-2.5">⭐ Tus favoritos</p>
+    <div class="flex flex-col gap-2 mb-1">
+      ${top3.map(([productoId, info], idx) => `
+        <button data-favorito-id="${productoId}" class="w-full text-left bg-white rounded-2xl border border-line p-3.5 flex items-center gap-3 active:bg-line/30">
+          <span class="text-[20px] shrink-0">${medallas[idx]}</span>
+          <div class="min-w-0 flex-1">
+            <p class="font-display font-600 text-[13.5px] text-ink truncate">${info.nombre}</p>
+            <p class="text-[11.5px] text-muted">Lo has pedido ${info.veces} ${info.veces === 1 ? 'vez' : 'veces'}</p>
+          </div>
+          <span class="text-forest text-[11.5px] font-display font-600 shrink-0">Pedir →</span>
+        </button>
+      `).join('')}
+    </div>
+    <p class="text-[11px] text-muted text-center mt-2 mb-1">Solo tú puedes ver esto — se calcula en tu celular.</p>
+  `;
+
+  cont.querySelectorAll('[data-favorito-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const producto = PRODUCTOS.find(p => p.id === btn.dataset.favoritoId);
+      if (!producto) { toast('Ese platillo ya no está disponible en el menú.', 'error'); return; }
+      if (producto.disponible === false) { toast(`${producto.nombre} está agotado por ahora.`, 'error'); return; }
+      cerrarMisPedidosUI();
+      abrirProducto(producto.id);
+    });
+  });
+}
+
 
 function renderMisPedidosList() {
   const cont = document.getElementById('misPedidosList');
@@ -9353,7 +9671,12 @@ document.getElementById('vaciarCarrito').addEventListener('click', () => {
   if (!confirm('¿Vaciar todo el carrito? Se perderá el pedido que llevas armado.')) return;
   cart = [];
   regaloActivo = false;
-  renderCart(); actualizarCartUI();
+  checkoutDireccion = '';
+  checkoutNombreDestinatario = '';
+  checkoutTelefonoDestinatario = '';
+  checkoutMensajeRegalo = '';
+  gpsCoords = null;
+  renderCart(); actualizarCartUI(); // renderCart() con carrito vacío ya limpia el progreso guardado
   volverACategorias(true);
   toast('Carrito vacío');
 });
@@ -9527,7 +9850,12 @@ setTimeout(ocultarSplash, 1700);
 // raíz, y el botón/gesto de atrás puede navegar hacia ella en vez de salir de la app.
 history.replaceState({ vista: 'categorias', categoriaActivaId: null, grupoSubcatActivo: null, subcategoriaActiva: null }, '', location.href);
 
-cargarMenu();
+cargarMenu().then(() => {
+  // Solo hasta que el catálogo (PRODUCTOS) ya está cargado podemos revalidar
+  // con seguridad un pedido en progreso guardado antes de un cierre real de la app.
+  restaurarProgresoCheckoutSiExiste();
+});
+
 </script>
 <!-- ============ MODAL DE BIENVENIDA (solo primera vez, apodo + teléfono) ============ -->
 <div id="modalBienvenida" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -9572,8 +9900,8 @@ cargarMenu();
         <p class="font-display font-700 text-[12.5px] text-gold mt-2 leading-tight">Cotizar el mío</p>
       </a>
     </div>
-    <div id="cumpleScrollHint" class="pointer-events-none absolute top-0 right-0 h-[calc(100%-2rem)] w-14 bg-gradient-to-l from-white via-white/80 to-transparent flex items-center justify-end">
-      <span class="w-7 h-7 rounded-full bg-ink/35 flex items-center justify-center text-white text-[15px] leading-none mr-1">›</span>
+    <div id="cumpleScrollHint" class="pointer-events-none absolute top-0 right-2 h-[calc(100%-2rem)] flex items-center">
+      <span class="w-8 h-8 rounded-full bg-ink/45 backdrop-blur-sm flex items-center justify-center text-white text-[16px] leading-none shadow-md">›</span>
     </div>
     </div>
   </div>
