@@ -7131,6 +7131,15 @@ async function cargarMenu() {
   PRODUCTOS = prods || [];
   ZONAS = zonas || [];
   TIENDA_ABIERTA = config ? config.tienda_abierta : true;
+  CHEEMS_ACTIVO = config ? config.cheems_activo : true;
+  CHEEMS_PESOS_POR_UNIDAD = config && config.cheems_pesos_por_unidad ? config.cheems_pesos_por_unidad : 100;
+  document.querySelectorAll('.misCheemsBtnAll').forEach(btn => {
+    btn.classList.toggle('hidden', !CHEEMS_ACTIVO);
+  });
+  if (!DEMO_MODE && CHEEMS_ACTIVO) {
+    const { data: premios } = await supabase.from('premios_cheems').select('*').eq('activo', true).order('cheems_necesarios');
+    PREMIOS_CHEEMS = premios || [];
+  }
 
   GRUPOS = {};
   (grupos || []).forEach(g => GRUPOS[g.id] = { ...g, opciones: [] });
@@ -8670,7 +8679,7 @@ async function confirmarPedido() {
     const subtotal = cart.reduce((a, i) => a + i.subtotal, 0);
     const cheemsRedimidosAhora = (redimirCheemsEstePedido && cheemsDisponiblesCliente >= 5) ? 5 : 0;
     const descuentoCheems = cheemsRedimidosAhora > 0 ? 50 : 0;
-    const cheemsGanadosEstePedido = Math.floor(subtotal / 100);
+    const cheemsGanadosEstePedido = Math.floor(subtotal / CHEEMS_PESOS_POR_UNIDAD);
     const total = Math.max(0, subtotal + costoEnvio + propina - descuentoCheems);
     const mapsUrl = gpsCoords
       ? `https://www.google.com/maps/search/?api=1&query=${gpsCoords.lat},${gpsCoords.lng}`
@@ -9420,47 +9429,65 @@ document.getElementById('btnGuardarDatosPerfil').addEventListener('click', async
 });
 
 // ---------- Mis Cheems ----------
-const CHEEMS_META = 5;
+// El programa se puede apagar del todo desde el admin (CHEEMS_ACTIVO), y los
+// premios (foto, nombre, descripción, Cheems necesarios) también se
+// configuran ahí — hasta 4, ninguno fijo en el código.
+let CHEEMS_ACTIVO = true;
+let CHEEMS_PESOS_POR_UNIDAD = 100; // pesos gastados por cada Cheem ganado, editable desde el admin
+let PREMIOS_CHEEMS = []; // solo los activos, ordenados de menor a mayor cheems_necesarios
+
+// El siguiente premio que el cliente todavía no alcanza (el de menor umbral
+// pendiente), o null si ya los desbloqueó todos.
+function siguientePremioCheems(cheems) {
+  return PREMIOS_CHEEMS.find(p => p.cheems_necesarios > cheems) || null;
+}
 
 // Versión chica (texto plano), usada en el modal post-pedido.
-function patitasCheemsHTML(cantidad) {
+// Fila de patitas simple — usada solo para celebrar los Cheems ganados en UN
+// pedido puntual (modal post-pedido), no representa ninguna meta fija.
+function patitasSimplesHTML(cantidad) {
+  const mostrar = Math.min(cantidad, 10);
   let html = '';
-  for (let i = 0; i < CHEEMS_META; i++) {
-    html += `<span class="text-[18px] ${i < cantidad ? '' : 'opacity-20 grayscale'}">🐾</span>`;
-  }
+  for (let i = 0; i < mostrar; i++) html += `<span class="text-[18px]">🐾</span>`;
   return html;
 }
-// Versión grande y vistosa: cada Cheem ganado es un círculo con degradado
-// dorado y sombra; los que faltan son un círculo punteado tenue. Se usa en
-// la pantalla dedicada del programa de lealtad.
-function patitasCheemsGrandeHTML(cantidad) {
-  let html = '';
-  for (let i = 0; i < CHEEMS_META; i++) {
-    const ganada = i < cantidad;
-    html += `
-      <div class="w-14 h-14 rounded-full flex items-center justify-center text-[26px] shrink-0 ${ganada ? 'shadow-md' : 'border-2 border-dashed border-line/80'}" style="${ganada ? 'background: linear-gradient(145deg, #F3D9A0 0%, #D4A017 60%, #B8860B 100%);' : ''}">
-        <span class="${ganada ? 'drop-shadow-sm' : 'opacity-25 grayscale'}">🐾</span>
+
+// Tarjeta de un premio: foto, nombre, descripción, y si ya está desbloqueado
+// o cuántos Cheems faltan. Se ve igual en Mis Cheems y donde se necesite.
+function premioCardHTML(p, cheems) {
+  const desbloqueado = cheems >= p.cheems_necesarios;
+  return `
+    <div class="bg-white rounded-2xl border ${desbloqueado ? 'border-gold' : 'border-line'} p-3.5 flex items-center gap-3">
+      <div class="w-16 h-16 rounded-xl shrink-0 overflow-hidden bg-[#F4F2EE] flex items-center justify-center ${desbloqueado ? '' : 'grayscale opacity-60'}">
+        ${p.imagen_url ? `<img src="${p.imagen_url}" alt="${escapeHtml(p.nombre)}" class="w-full h-full object-cover" />` : `<span class="text-[24px]">🎁</span>`}
       </div>
-    `;
-  }
-  return html;
+      <div class="flex-1 min-w-0">
+        <p class="font-display font-700 text-[13.5px] text-ink truncate">${escapeHtml(p.nombre)}</p>
+        ${p.descripcion ? `<p class="text-[11.5px] text-muted leading-snug mt-0.5">${escapeHtml(p.descripcion)}</p>` : ''}
+        <p class="text-[11.5px] font-display font-600 mt-1 ${desbloqueado ? 'text-gold' : 'text-muted'}">
+          ${desbloqueado ? '🎉 ¡Ya lo tienes disponible!' : `Te faltan ${p.cheems_necesarios - cheems} Cheem${p.cheems_necesarios - cheems === 1 ? '' : 's'}`}
+        </p>
+      </div>
+      <span class="text-[11px] text-muted font-display font-600 shrink-0 flex items-center gap-0.5">${p.cheems_necesarios} 🐾</span>
+    </div>
+  `;
 }
 
 // Tarjeta compacta e informativa (sin acciones), usada dentro de Mi Perfil:
 // solo muestra el progreso, no invita a interactuar ahí — para eso está la
 // pantalla dedicada de Mis Cheems.
 function cheemsCardInfoHTML(cheems) {
-  const enMeta = cheems % CHEEMS_META;
-  const premiosDisponibles = Math.floor(cheems / CHEEMS_META);
+  const siguiente = siguientePremioCheems(cheems);
+  let nota = 'Ve el detalle en la pantalla "Mis Cheems" del menú lateral.';
+  if (siguiente) nota = `Te faltan ${siguiente.cheems_necesarios - cheems} Cheem${siguiente.cheems_necesarios - cheems === 1 ? '' : 's'} para "${escapeHtml(siguiente.nombre)}". ` + nota;
+  else if (PREMIOS_CHEEMS.length) nota = '🎉 ¡Ya desbloqueaste todos los premios disponibles! ' + nota;
   return `
     <div class="bg-white rounded-2xl border border-line p-4">
       <div class="flex items-center justify-between mb-2">
         <p class="font-display font-700 text-[13px] text-ink">Mis Cheems 🐾</p>
         <span class="text-[11px] text-muted">${cheems} en total</span>
       </div>
-      <div class="flex items-center gap-1 mb-2">${patitasCheemsHTML(enMeta)}</div>
-      <p class="text-[11.5px] text-muted leading-snug">1 Cheem por cada $100 en tu pedido. Junta 5 y los usas en tu próximo pedido para <strong>$50 de descuento</strong>. Ve el detalle en la pantalla "Mis Cheems" del menú lateral.</p>
-      ${premiosDisponibles > 0 ? `<p class="text-[12px] text-gold font-display font-700 mt-2">🎉 ¡Ya puedes canjear ${premiosDisponibles} recompensa${premiosDisponibles > 1 ? 's' : ''} en tu próximo pedido!</p>` : ''}
+      <p class="text-[11.5px] text-muted leading-snug">1 Cheem por cada $${CHEEMS_PESOS_POR_UNIDAD} en tu pedido. ${nota}</p>
     </div>
   `;
 }
@@ -9468,23 +9495,34 @@ function renderMiPerfilCheemsSection(cheems) {
   document.getElementById('miPerfilCheemsSection').innerHTML = cheemsCardInfoHTML(cheems);
 }
 
-// Contenido completo de la pantalla dedicada: patitas grandes, explicación
-// de las reglas, y el aviso de recompensa disponible si aplica.
+// Contenido completo de la pantalla dedicada: progreso hacia el siguiente
+// premio, y la galería de todos los premios activos con su foto.
 function renderMisCheemsContenido(cheems) {
   const cont = document.getElementById('misCheemsContenido');
-  const enMeta = cheems % CHEEMS_META;
-  const premiosDisponibles = Math.floor(cheems / CHEEMS_META);
+
+  if (!PREMIOS_CHEEMS.length) {
+    cont.innerHTML = `
+      <div class="bg-white rounded-2xl border border-line p-5 text-center">
+        <p class="text-[12px] text-muted mb-1">${cheems} Cheem${cheems === 1 ? '' : 's'} en total</p>
+        <p class="text-[13px] text-ink/70 mt-3">Todavía no hay premios activos — ¡pronto habrá sorpresas! 🐾</p>
+      </div>
+    `;
+    return;
+  }
+
+  const siguiente = siguientePremioCheems(cheems);
   cont.innerHTML = `
     <div class="bg-white rounded-2xl border border-line p-5 text-center">
       <p class="text-[12px] text-muted mb-3">${cheems} Cheem${cheems === 1 ? '' : 's'} en total</p>
-      <div class="flex items-center justify-center gap-2.5 mb-4">${patitasCheemsGrandeHTML(enMeta)}</div>
-      <p class="font-display font-700 text-[15px] text-forestDark">${enMeta} / ${CHEEMS_META} para tu próxima recompensa</p>
-      ${premiosDisponibles > 0 ? `<p class="text-[13px] text-gold font-display font-700 mt-2">🎉 ¡Ya puedes canjear ${premiosDisponibles} recompensa${premiosDisponibles > 1 ? 's' : ''} en tu próximo pedido!</p>` : ''}
+      ${siguiente ? `
+        <p class="font-display font-700 text-[15px] text-forestDark">${cheems} / ${siguiente.cheems_necesarios} para "${escapeHtml(siguiente.nombre)}"</p>
+        <div class="w-full h-2.5 rounded-full bg-line/60 mt-2.5 overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(100, cheems / siguiente.cheems_necesarios * 100)}%; background: linear-gradient(90deg, #F3D9A0, #D4A017);"></div></div>
+      ` : `<p class="font-display font-700 text-[15px] text-gold">🎉 ¡Ya desbloqueaste todos los premios disponibles!</p>`}
     </div>
+    <div class="space-y-2.5 mt-4">${PREMIOS_CHEEMS.map(p => premioCardHTML(p, cheems)).join('')}</div>
     <div class="bg-white rounded-2xl border border-line p-4 mt-4 space-y-2">
       <p class="font-display font-700 text-[13px] text-ink">¿Cómo funciona?</p>
-      <p class="text-[12.5px] text-ink/80 leading-snug">🐾 Ganas 1 Cheem por cada $100 en el subtotal de tu pedido.</p>
-      <p class="text-[12.5px] text-ink/80 leading-snug">🎁 Al juntar 5 Cheems, puedes usarlos en tu siguiente pedido para <strong>$50 de descuento</strong>.</p>
+      <p class="text-[12.5px] text-ink/80 leading-snug">🐾 Ganas 1 Cheem por cada $${CHEEMS_PESOS_POR_UNIDAD} en el subtotal de tu pedido.</p>
       <p class="text-[12.5px] text-ink/80 leading-snug">📱 Se identifican por tu teléfono guardado — captúralo al pedir para no perder tu progreso.</p>
     </div>
   `;
@@ -9498,16 +9536,15 @@ function mostrarModalCheemsPostPedido(saldoAnterior, saldoNuevo, ganados, redimi
 
   if (redimidos > 0) {
     titulo.textContent = '¡Usaste tus Cheems! 🎉';
-    texto.textContent = `Se aplicaron $50 de descuento y ganaste ${ganados} Cheem${ganados === 1 ? '' : 's'} nuevo${ganados === 1 ? '' : 's'} en este pedido.`;
+    texto.textContent = `Se aplicó tu descuento y ganaste ${ganados} Cheem${ganados === 1 ? '' : 's'} nuevo${ganados === 1 ? '' : 's'} en este pedido.`;
   } else if (ganados > 0) {
     titulo.textContent = '¡Ganaste Cheems! 🐾';
     texto.textContent = `Sumaste ${ganados} Cheem${ganados === 1 ? '' : 's'} por este pedido.`;
   } else {
     titulo.textContent = 'Tu pedido está en camino';
-    texto.textContent = 'La próxima vez que gastes $100 o más, empiezas a juntar Cheems 🐾';
+    texto.textContent = `La próxima vez que gastes $${CHEEMS_PESOS_POR_UNIDAD} o más, empiezas a juntar Cheems 🐾`;
   }
-  const enMeta = saldoNuevo % CHEEMS_META;
-  patitas.innerHTML = patitasCheemsHTML(enMeta);
+  patitas.innerHTML = ganados > 0 ? patitasSimplesHTML(ganados) : '';
   contador.textContent = `${saldoNuevo} Cheems en total`;
   if (ganados > 0 || redimidos > 0) modal.classList.remove('hidden');
 }

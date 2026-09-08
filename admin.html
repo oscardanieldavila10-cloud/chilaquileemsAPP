@@ -177,6 +177,31 @@
     <button id="tiendaToggleBtn" class="font-display font-600 text-[13px] px-4 py-2 rounded-full self-start sm:self-auto">—</button>
    </div>
 
+   <div id="cheemsConfigBox" class="card-detail bg-white rounded-2xl border border-line shadow-sm p-4 mb-6">
+    <div class="flex items-center justify-between mb-3">
+     <div class="flex items-center gap-3">
+      <span class="w-10 h-10 rounded-xl bg-gold/10 text-gold flex items-center justify-center shrink-0 text-[18px]">🐾</span>
+      <div>
+       <p class="font-display font-600 text-[14px]">Programa Mis Cheems</p>
+       <p id="cheemsEstadoTexto" class="text-[13px] text-muted mt-0.5">Cargando...</p>
+      </div>
+     </div>
+     <button id="cheemsToggleBtn" class="font-display font-600 text-[13px] px-4 py-2 rounded-full self-start sm:self-auto">—</button>
+    </div>
+    <div id="cheemsConfigForm" class="hidden pt-3 border-t border-line">
+     <div class="flex items-end gap-2 mb-4 pb-4 border-b border-line">
+      <div class="flex-1">
+       <label class="block text-[12px] font-medium text-muted mb-1">Pesos gastados por cada Cheem ganado</label>
+       <input id="cheemsPesosInput" type="number" min="1" step="1" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-forest" placeholder="Ej. 100" />
+      </div>
+      <button id="cheemsPesosGuardarBtn" class="btn-gradient text-white font-display font-600 rounded-xl px-4 py-2.5 text-[13.5px] shrink-0">Guardar</button>
+      <p id="cheemsPesosMsg" class="hidden text-[11.5px] text-forest self-center">Guardado ✓</p>
+     </div>
+     <p class="text-[12px] text-muted mb-3">Hasta 4 premios distintos, cada uno con su propia meta de Cheems — pueden ser platillos, descuentos, o cualquier otra cosa (un artículo, una promoción especial, etc). Activa solo los que quieras usar.</p>
+     <div id="premiosCheemsList" class="space-y-3"></div>
+    </div>
+   </div>
+
    <div class="flex items-center justify-between mb-3">
     <h3 class="font-display font-600 text-[13px] text-muted uppercase tracking-wide">Productos</h3>
     <button type="button" id="btnAbrirNuevoPlatillo" class="font-display font-600 text-[12.5px] text-white btn-gradient rounded-full px-3.5 py-1.5 flex items-center gap-1.5">
@@ -2529,6 +2554,7 @@ document.getElementById('formNuevoPlatillo').addEventListener('submit', async (e
 async function cargarMenuAdmin() {
  if (DEMO_MODE) {
   renderTiendaToggle({ tienda_abierta: true });
+  renderCheemsConfig({ cheems_activo: true, cheems_meta: 5, cheems_premio: 'Un platillo gratis a elegir' });
   renderMenuAdminList(MOCK.categorias, MOCK.productos.map(p => ({ ...p, costo: Math.round(p.precio_base * 0.42) })));
   renderZonas(MOCK.zonas);
   return;
@@ -2540,6 +2566,7 @@ async function cargarMenuAdmin() {
   supabase.from('zonas').select('*').order('costo_envio'),
  ]);
  renderTiendaToggle(config);
+ renderCheemsConfig(config);
  renderMenuAdminList(cats || [], prods || []);
  renderZonas(zonas || []);
 }
@@ -2564,13 +2591,15 @@ const menuCatAbiertas = new Set();
 function productoRowAdminHtml(p, fotoCat) {
  return `
   <div id="prodRow-${p.id}" class="bg-white rounded-2xl border border-line shadow-sm p-3.5 flex items-center gap-2 ${!p.disponible ? 'opacity-50' : ''}">
-   <span class="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center bg-[#F4F2EE] text-ink font-display font-700 text-[15px] overflow-hidden">${fotoCat ? `<img src="${fotoCat}" alt="${p.nombre}" class="w-full h-full object-cover" />` : p.nombre.charAt(0).toUpperCase()}</span>
+   <button data-id="${p.id}" data-nombre="${p.nombre}" title="Cambiar foto" class="cambiarFotoBtn w-10 h-10 rounded-xl shrink-0 flex items-center justify-center bg-[#F4F2EE] text-ink font-display font-700 text-[15px] overflow-hidden relative group">
+    ${p.imagen_url ? `<img src="${p.imagen_url}" alt="${p.nombre}" class="w-full h-full object-cover" />` : (fotoCat ? `<img src="${fotoCat}" alt="${p.nombre}" class="w-full h-full object-cover" />` : p.nombre.charAt(0).toUpperCase())}
+   </button>
    <button data-id="${p.id}" data-disp="${p.disponible}" class="dispToggle w-9 h-6 rounded-full relative shrink-0 ${p.disponible ? 'bg-forest' : 'bg-line'}">
     <span class="absolute top-0.5 ${p.disponible ? 'right-0.5' : 'left-0.5'} w-5 h-5 rounded-full bg-white block shadow-sm"></span>
    </button>
    <button data-id="${p.id}" data-dest="${p.destacado}" title="Destacar en inicio (favoritos de la casa)" class="destacadoToggle w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-[16px] ${p.destacado ? 'bg-gold/15 text-gold' : 'bg-line/50 text-muted'}">★</button>
    <div class="flex-1 min-w-0">
-    <p class="font-display font-600 text-[14px] truncate">${p.nombre}</p>
+    <p class="font-display font-600 text-[14px] break-words leading-snug">${p.nombre}</p>
     <div class="flex gap-2 mt-1.5 flex-wrap items-end">
      <div>
       <label class="block text-[9px] text-muted mb-0.5">precio</label>
@@ -2583,9 +2612,15 @@ function productoRowAdminHtml(p, fotoCat) {
      <span class="text-[11px] text-forest font-semibold pb-1 whitespace-nowrap">${marginPct(p.precio_base, p.costo)}% margen</span>
     </div>
    </div>
-   <button data-id="${p.id}" data-nombre="${p.nombre}" title="Descontinuar (quitar de la carta para siempre)" class="descontinuarBtn w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-muted hover:bg-accentSoft hover:text-accent transition">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-8 0v12a2 2 0 002 2h6a2 2 0 002-2V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-   </button>
+   <div class="flex flex-col gap-1 shrink-0">
+    <button data-id="${p.id}" data-nombre="${p.nombre}" title="Descontinuar (quitar de la carta para siempre)" class="descontinuarBtn w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-muted hover:bg-accentSoft hover:text-accent transition">
+     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-8 0v12a2 2 0 002 2h6a2 2 0 002-2V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button data-id="${p.id}" data-nombre="${p.nombre}" title="Borrar para siempre (solo si nunca se ha pedido)" class="borrarPlatilloBtn w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-muted hover:bg-accent/10 hover:text-accent transition">
+     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-8 0v12a2 2 0 002 2h6a2 2 0 002-2V7M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+   </div>
+   <input type="file" accept="image/*" data-id="${p.id}" class="fotoPlatilloInput hidden" />
   </div>
  `;
 }
@@ -2728,7 +2763,199 @@ function renderMenuAdminList(categorias, productos) {
   });
  });
 
+ // Borrar para siempre: solo funciona si el platillo nunca ha tenido un
+ // pedido real guardado en Supabase — la base de datos lo protege sola
+ // (rechaza el borrado con un error) para nunca perder historial de ventas.
+ // Si eso pasa, sugerimos "Descontinuar" en su lugar.
+ document.querySelectorAll('.borrarPlatilloBtn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   const ok = confirm(`¿Borrar "${btn.dataset.nombre}" PARA SIEMPRE? Esto no se puede deshacer. Si este platillo ya se ha vendido, no se podrá borrar — usa "Descontinuar" en ese caso.`);
+   if (!ok) return;
+   btn.disabled = true;
+   const { error } = await supabase.from('productos').delete().eq('id', btn.dataset.id);
+   btn.disabled = false;
+   if (error) {
+    if (error.message.includes('violates foreign key') || error.code === '23503') {
+     alert(`No se puede borrar "${btn.dataset.nombre}" porque ya tiene pedidos registrados. Usa "Descontinuar" (el ícono del bote de basura de arriba) en su lugar — así se quita del menú sin perder el historial de ventas.`);
+    } else {
+     alert('No se pudo borrar: ' + error.message);
+    }
+    return;
+   }
+   menuAdminProductosCache = menuAdminProductosCache.filter(p => p.id !== btn.dataset.id);
+   renderMenuAdminList(menuAdminCategoriasCache, menuAdminProductosCache);
+  });
+ });
+
+ // Cambiar/subir foto de un platillo ya existente (mismo bucket "platillos"
+ // que usa "Nuevo platillo", comprimida igual antes de subirse).
+ document.querySelectorAll('.cambiarFotoBtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   const input = document.querySelector(`.fotoPlatilloInput[data-id="${btn.dataset.id}"]`);
+   if (input) input.click();
+  });
+ });
+ document.querySelectorAll('.fotoPlatilloInput').forEach(input => {
+  input.addEventListener('change', async (e) => {
+   const file = e.target.files[0];
+   e.target.value = '';
+   if (!file) return;
+   const id = input.dataset.id;
+   const btn = document.querySelector(`.cambiarFotoBtn[data-id="${id}"]`);
+   const original = btn.innerHTML;
+   btn.innerHTML = '<span class="text-[9px]">Subiendo…</span>';
+   try {
+    const blob = await comprimirFotoPlatillo(file);
+    const path = `${id}-${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage.from('platillos').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    if (upErr) throw upErr;
+    const { data: pub } = supabase.storage.from('platillos').getPublicUrl(path);
+    const { error: updErr } = await supabase.from('productos').update({ imagen_url: pub.publicUrl }).eq('id', id);
+    if (updErr) throw updErr;
+    const prod = menuAdminProductosCache.find(p => p.id === id);
+    if (prod) prod.imagen_url = pub.publicUrl;
+    renderMenuAdminList(menuAdminCategoriasCache, menuAdminProductosCache);
+   } catch (err) {
+    alert('No se pudo subir la foto: ' + (err.message || err));
+    btn.innerHTML = original;
+   }
+  });
+ });
+
  renderDescontinuados(productos);
+}
+
+async function renderCheemsConfig(config) {
+ const activo = config ? config.cheems_activo : true;
+
+ document.getElementById('cheemsEstadoTexto').textContent = activo
+  ? 'Activo — el ícono de la huellita se ve en la app'
+  : 'Apagado — no aparece el ícono ni se acumulan Cheems';
+ const btn = document.getElementById('cheemsToggleBtn');
+ btn.textContent = activo ? 'Apagar' : 'Prender';
+ btn.className = `font-display font-600 text-[13px] px-4 py-2 rounded-full whitespace-nowrap shrink-0 ${activo ? 'bg-accent text-white' : 'bg-forest text-white'}`;
+ btn.onclick = async () => {
+  if (DEMO_MODE) { demoBloqueado(); return; }
+  const { error } = await supabase.from('configuracion').update({ cheems_activo: !activo }).eq('id', 1);
+  if (error) { alert('No se pudo actualizar: ' + error.message); return; }
+  cargarMenuAdmin();
+ };
+
+ document.getElementById('cheemsConfigForm').classList.toggle('hidden', !activo);
+ if (!activo) return;
+
+ document.getElementById('cheemsPesosInput').value = config && config.cheems_pesos_por_unidad ? config.cheems_pesos_por_unidad : 100;
+ document.getElementById('cheemsPesosGuardarBtn').onclick = async () => {
+  if (DEMO_MODE) { demoBloqueado(); return; }
+  const pesos = Number(document.getElementById('cheemsPesosInput').value);
+  if (!pesos || pesos < 1) { alert('Escribe un número de pesos válido (mayor a 0).'); return; }
+  const { error } = await supabase.from('configuracion').update({ cheems_pesos_por_unidad: pesos }).eq('id', 1);
+  if (error) { alert('No se pudo guardar: ' + error.message); return; }
+  const msg = document.getElementById('cheemsPesosMsg');
+  msg.classList.remove('hidden');
+  setTimeout(() => msg.classList.add('hidden'), 2000);
+ };
+
+ if (DEMO_MODE) { document.getElementById('premiosCheemsList').innerHTML = '<p class="text-[12.5px] text-muted">No disponible en modo demo.</p>'; return; }
+
+ const { data: premios } = await supabase.from('premios_cheems').select('*').order('slot');
+ renderPremiosCheemsList(premios || []);
+}
+
+function premioCheemsCardHtml(p) {
+ return `
+  <div id="premioCard-${p.slot}" class="rounded-2xl border border-line p-3.5 ${p.activo ? '' : 'opacity-60'}">
+   <div class="flex items-center justify-between mb-2.5">
+    <p class="font-display font-600 text-[13px] text-muted">Premio ${p.slot}</p>
+    <button data-slot="${p.slot}" data-activo="${p.activo}" class="premioActivoToggle w-9 h-6 rounded-full relative shrink-0 ${p.activo ? 'bg-forest' : 'bg-line'}">
+     <span class="absolute top-0.5 ${p.activo ? 'right-0.5' : 'left-0.5'} w-5 h-5 rounded-full bg-white block shadow-sm"></span>
+    </button>
+   </div>
+   <div class="flex gap-3">
+    <button data-slot="${p.slot}" title="Foto del premio" class="premioFotoBtn w-16 h-16 rounded-xl shrink-0 flex items-center justify-center bg-[#F4F2EE] overflow-hidden border border-line">
+     ${p.imagen_url ? `<img src="${p.imagen_url}" class="w-full h-full object-cover" />` : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 16l4-4a2 2 0 013 0l5 5M4 8h16M4 4h16v16H4V4z" stroke="#c9c9c9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`}
+    </button>
+    <input type="file" accept="image/*" data-slot="${p.slot}" class="premioFotoInput hidden" />
+    <div class="flex-1 min-w-0 space-y-2">
+     <div class="flex gap-2">
+      <input data-slot="${p.slot}" class="premioNombreInput flex-1 min-w-0 rounded-lg border border-line px-2.5 py-1.5 text-[13px]" placeholder="Nombre del premio" value="${p.nombre || ''}" />
+      <input data-slot="${p.slot}" type="number" min="1" class="premioCheemsInput w-16 shrink-0 rounded-lg border border-line px-2 py-1.5 text-[13px]" placeholder="Cheems" value="${p.cheems_necesarios}" />
+     </div>
+     <textarea data-slot="${p.slot}" rows="2" class="premioDescInput w-full rounded-lg border border-line px-2.5 py-1.5 text-[12.5px]" placeholder="Descripción (opcional)">${p.descripcion || ''}</textarea>
+    </div>
+   </div>
+   <div class="flex items-center justify-between mt-2">
+    <p id="premioMsg-${p.slot}" class="hidden text-[11.5px] text-forest">Guardado ✓</p>
+    <button data-slot="${p.slot}" class="premioGuardarBtn ml-auto text-[12px] font-display font-600 text-white btn-gradient rounded-full px-3.5 py-1.5">Guardar premio ${p.slot}</button>
+   </div>
+  </div>
+ `;
+}
+
+function renderPremiosCheemsList(premios) {
+ const cont = document.getElementById('premiosCheemsList');
+ cont.innerHTML = premios.map(premioCheemsCardHtml).join('');
+
+ cont.querySelectorAll('.premioActivoToggle').forEach(btn => {
+  btn.addEventListener('click', async () => {
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   const nuevoActivo = btn.dataset.activo !== 'true';
+   const { error } = await supabase.from('premios_cheems').update({ activo: nuevoActivo }).eq('slot', btn.dataset.slot);
+   if (error) { alert('No se pudo actualizar: ' + error.message); return; }
+   const { data: premios } = await supabase.from('premios_cheems').select('*').order('slot');
+   renderPremiosCheemsList(premios || []);
+  });
+ });
+
+ cont.querySelectorAll('.premioFotoBtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   document.querySelector(`.premioFotoInput[data-slot="${btn.dataset.slot}"]`).click();
+  });
+ });
+ cont.querySelectorAll('.premioFotoInput').forEach(input => {
+  input.addEventListener('change', async (e) => {
+   const file = e.target.files[0];
+   e.target.value = '';
+   if (!file) return;
+   const slot = input.dataset.slot;
+   const btn = document.querySelector(`.premioFotoBtn[data-slot="${slot}"]`);
+   const original = btn.innerHTML;
+   btn.innerHTML = '<span class="text-[8px]">Subiendo…</span>';
+   try {
+    const blob = await comprimirFotoPlatillo(file);
+    const path = `premio-${slot}-${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage.from('premios').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    if (upErr) throw upErr;
+    const { data: pub } = supabase.storage.from('premios').getPublicUrl(path);
+    const { error: updErr } = await supabase.from('premios_cheems').update({ imagen_url: pub.publicUrl }).eq('slot', slot);
+    if (updErr) throw updErr;
+    btn.innerHTML = `<img src="${pub.publicUrl}" class="w-full h-full object-cover" />`;
+   } catch (err) {
+    alert('No se pudo subir la foto: ' + (err.message || err));
+    btn.innerHTML = original;
+   }
+  });
+ });
+
+ cont.querySelectorAll('.premioGuardarBtn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   const slot = btn.dataset.slot;
+   const nombre = cont.querySelector(`.premioNombreInput[data-slot="${slot}"]`).value.trim();
+   const cheemsNecesarios = Number(cont.querySelector(`.premioCheemsInput[data-slot="${slot}"]`).value);
+   const descripcion = cont.querySelector(`.premioDescInput[data-slot="${slot}"]`).value.trim();
+   if (!nombre) { alert('Ponle un nombre a este premio.'); return; }
+   if (!cheemsNecesarios || cheemsNecesarios < 1) { alert('El número de Cheems necesarios debe ser al menos 1.'); return; }
+   const { error } = await supabase.from('premios_cheems').update({ nombre, cheems_necesarios: cheemsNecesarios, descripcion: descripcion || null }).eq('slot', slot);
+   if (error) { alert('No se pudo guardar: ' + error.message); return; }
+   const msg = document.getElementById(`premioMsg-${slot}`);
+   msg.classList.remove('hidden');
+   setTimeout(() => msg.classList.add('hidden'), 2000);
+  });
+ });
 }
 
 function renderDescontinuados(productos) {
@@ -3073,7 +3300,12 @@ document.getElementById('pushToggleBtn').addEventListener('click', async () => {
 });
 
 if ('serviceWorker' in navigator) {
- navigator.serviceWorker.register('sw.js')
+ // Ojo: el mismo sw.js también lo registra index.html, pero SIN indicarle
+ // scope — eso lo hace controlar todo el dominio ("/") por defecto. Aquí le
+ // damos un scope explícito y más específico ("/admin.html") para que el
+ // navegador trate esta página como una app aparte, en vez de que ambas
+ // terminen bajo el control del mismo service worker "genérico".
+ navigator.serviceWorker.register('sw.js', { scope: '/admin.html' })
   .then(() => actualizarBotonPush())
   .catch((e) => console.error('No se pudo registrar el service worker:', e));
 }
