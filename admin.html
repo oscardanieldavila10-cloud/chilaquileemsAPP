@@ -77,6 +77,19 @@
  </form>
 </div>
 
+<!-- RECUPERAR CONTRASEÑA (solo aparece si llegaste del link que manda el correo) -->
+<div id="recoveryView" class="hidden min-h-screen flex items-center justify-center p-4">
+ <form id="recoveryForm" class="bg-white rounded-3xl p-8 w-full max-w-sm space-y-4 shadow-sm border border-line">
+  <p class="font-display font-600 text-[17px] text-center">Define tu nueva contraseña</p>
+  <p class="text-center text-[13px] text-muted -mt-2">Escribe la contraseña que quieres usar de ahora en adelante para entrar al panel.</p>
+  <input id="recoveryPass" type="password" placeholder="Nueva contraseña (mínimo 6 caracteres)" required minlength="6" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" />
+  <input id="recoveryPass2" type="password" placeholder="Repite la nueva contraseña" required minlength="6" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] focus:outline-none focus:border-accent" />
+  <button class="w-full btn-gradient text-white font-display font-600 rounded-xl py-3 text-[14px]">Guardar nueva contraseña</button>
+  <p id="recoveryError" class="text-accent text-[13px] text-center hidden"></p>
+  <p id="recoverySuccess" class="text-forest text-[13px] text-center hidden">¡Listo! Ya puedes entrar con tu nueva contraseña.</p>
+ </form>
+</div>
+
 <!-- PANEL -->
 <div id="panelView" class="hidden">
  <header class="sticky top-0 z-20 bg-white border-b border-line">
@@ -396,6 +409,19 @@ const CONFIG = {
 };
 const DEMO_MODE = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL === 'TU_SUPABASE_URL';
 const supabase = DEMO_MODE ? null : createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+
+// Revisión directa de la URL (más confiable que esperar el evento
+// PASSWORD_RECOVERY de Supabase, que a veces se dispara antes de que el
+// resto del código esté listo para escucharlo): si el link del correo de
+// recuperación nos trajo aquí, lo sabemos de inmediato por la URL misma.
+const esRecuperacionPassword = /type=recovery/.test(location.hash) || /type=recovery/.test(location.search);
+if (esRecuperacionPassword) {
+ document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('recoveryView').classList.remove('hidden');
+ });
+}
+
 // Se llamaba en 15+ lugares del código pero nunca existía — bug latente que
 // nunca se notó porque el sitio en producción no corre en modo demo, pero
 // tronaría si alguien lo abriera sin Supabase conectado.
@@ -2026,7 +2052,59 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
  location.reload();
 });
 
+// ---------- RECUPERAR CONTRASEÑA ----------
+// Cuando alguien llega desde el link del correo de recuperación, Supabase
+// detecta el token en la URL solo y dispara este evento — aquí mostramos el
+// formulario de "nueva contraseña" en vez del login normal.
+if (!DEMO_MODE) {
+ supabase.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+   document.getElementById('loginView').classList.add('hidden');
+   document.getElementById('panelView').classList.add('hidden');
+   document.getElementById('recoveryView').classList.remove('hidden');
+  }
+ });
+}
+
+document.getElementById('recoveryForm').addEventListener('submit', async (e) => {
+ e.preventDefault();
+ const errorBox = document.getElementById('recoveryError');
+ const successBox = document.getElementById('recoverySuccess');
+ errorBox.classList.add('hidden');
+ successBox.classList.add('hidden');
+
+ const pass1 = document.getElementById('recoveryPass').value;
+ const pass2 = document.getElementById('recoveryPass2').value;
+ if (pass1 !== pass2) {
+  errorBox.textContent = 'Las dos contraseñas no coinciden.';
+  errorBox.classList.remove('hidden');
+  return;
+ }
+ if (pass1.length < 6) {
+  errorBox.textContent = 'La contraseña debe tener al menos 6 caracteres.';
+  errorBox.classList.remove('hidden');
+  return;
+ }
+
+ const { error } = await supabase.auth.updateUser({ password: pass1 });
+ if (error) {
+  errorBox.textContent = 'No se pudo guardar: ' + error.message;
+  errorBox.classList.remove('hidden');
+  return;
+ }
+
+ successBox.classList.remove('hidden');
+ document.getElementById('recoveryForm').querySelector('button').disabled = true;
+ // Cerramos la sesión temporal de recuperación y forzamos volver al login
+ // normal, para que la próxima entrada sea ya con la contraseña nueva.
+ setTimeout(async () => {
+  await supabase.auth.signOut();
+  location.href = location.pathname; // limpia el token de la URL también
+ }, 2000);
+});
+
 async function checkSession() {
+ if (esRecuperacionPassword) return; // ya estamos mostrando la pantalla de nueva contraseña, no pisarla con el panel
  if (DEMO_MODE) {
   mostrarPanel();
   const banner = document.createElement('div');
