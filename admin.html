@@ -2648,7 +2648,7 @@ function renderMenuAdminList(categorias, productos) {
   const items = productosVisibles.filter(p => p.categoria_id === cat.id);
   if (!items.length) return '';
   const abierta = buscando || menuCatAbiertas.has(cat.id);
-  const fotoCat = CATEGORIA_FOTOS_MINI[cat.nombre];
+  const fotoCat = cat.imagen_url || CATEGORIA_FOTOS_MINI[cat.nombre];
 
   // Agrupar por subcategoría dentro de la categoría (si el producto no tiene, va en un grupo "sin subcategoría")
   const subGrupos = {};
@@ -2660,21 +2660,26 @@ function renderMenuAdminList(categorias, productos) {
    ? `<div class="space-y-2">${subGrupos[''].map(p => productoRowAdminHtml(p, fotoCat)).join('')}</div>`
    : subKeys.map(subNombre => `
       <div class="mb-3.5 last:mb-0">
-       ${subNombre ? `<p class="text-[11px] font-display font-700 text-muted uppercase tracking-wide mb-2 pl-1">${subNombre}</p>` : ''}
+       ${subNombre ? `<p class="text-[11px] font-display font-700 text-muted uppercase tracking-wide mb-2 pl-1 flex items-center gap-1.5">${subNombre}<button type="button" data-catid="${cat.id}" data-sub="${subNombre}" class="subFotoBtn text-forest normal-case font-normal opacity-70 hover:opacity-100" title="Foto de esta subcategoría">📷</button></p>` : ''}
        <div class="space-y-2">${subGrupos[subNombre].map(p => productoRowAdminHtml(p, fotoCat)).join('')}</div>
       </div>
      `).join('');
 
   return `
    <div class="bg-white rounded-2xl border border-line shadow-sm overflow-hidden">
-    <button type="button" data-catid="${cat.id}" class="catAccordionBtn w-full flex items-center gap-2.5 p-3.5 text-left ${abierta ? 'border-b border-line bg-[#FAFAF8]' : ''}">
-     ${fotoCat ? `<img src="${fotoCat}" alt="${cat.nombre}" class="w-9 h-9 rounded-lg object-cover shrink-0" />` : ''}
+    <div class="w-full flex items-center gap-2.5 p-3.5 text-left ${abierta ? 'border-b border-line bg-[#FAFAF8]' : ''}">
+     <button type="button" data-catid="${cat.id}" title="Foto de la categoría" class="catFotoBtn w-9 h-9 rounded-lg shrink-0 overflow-hidden bg-[#F4F2EE] flex items-center justify-center border border-line/60">
+      ${fotoCat ? `<img src="${fotoCat}" alt="${cat.nombre}" class="w-full h-full object-cover" />` : `<span class="text-[13px]">📷</span>`}
+     </button>
+     <input type="file" accept="image/*" data-catid="${cat.id}" class="catFotoInput hidden" />
+     <button type="button" data-catid="${cat.id}" class="catAccordionBtn flex-1 min-w-0 flex items-center gap-2.5 text-left">
      <span class="flex-1 min-w-0">
       <span class="block font-display font-700 text-[13.5px] text-ink">${cat.nombre}</span>
       <span class="block text-[11.5px] text-muted mt-0.5">${items.length} platillo${items.length > 1 ? 's' : ''}</span>
      </span>
      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="transition-transform shrink-0 text-muted ${abierta ? 'rotate-180' : ''}"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
+    </div>
     ${abierta ? `<div class="p-3.5">${contenidoHtml}</div>` : ''}
    </div>
   `;
@@ -2685,6 +2690,79 @@ function renderMenuAdminList(categorias, productos) {
    const id = btn.dataset.catid;
    if (menuCatAbiertas.has(id)) menuCatAbiertas.delete(id); else menuCatAbiertas.add(id);
    renderMenuAdminList(menuAdminCategoriasCache, menuAdminProductosCache);
+  });
+ });
+
+ // Foto de categoría — sube al bucket "categorias", actualiza categorias.imagen_url
+ document.querySelectorAll('.catFotoBtn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+   e.stopPropagation();
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   document.querySelector(`.catFotoInput[data-catid="${btn.dataset.catid}"]`).click();
+  });
+ });
+ document.querySelectorAll('.catFotoInput').forEach(input => {
+  input.addEventListener('change', async (e) => {
+   const file = e.target.files[0];
+   e.target.value = '';
+   if (!file) return;
+   const catId = input.dataset.catid;
+   const btn = document.querySelector(`.catFotoBtn[data-catid="${catId}"]`);
+   const original = btn.innerHTML;
+   btn.innerHTML = '<span class="text-[9px]">Subiendo…</span>';
+   try {
+    const blob = await comprimirFotoPlatillo(file);
+    const path = `cat-${catId}-${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage.from('categorias').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    if (upErr) throw upErr;
+    const { data: pub } = supabase.storage.from('categorias').getPublicUrl(path);
+    const { error: updErr } = await supabase.from('categorias').update({ imagen_url: pub.publicUrl }).eq('id', catId);
+    if (updErr) throw updErr;
+    const cat = menuAdminCategoriasCache.find(c => c.id === catId);
+    if (cat) cat.imagen_url = pub.publicUrl;
+    renderMenuAdminList(menuAdminCategoriasCache, menuAdminProductosCache);
+   } catch (err) {
+    alert('No se pudo subir la foto: ' + (err.message || err));
+    btn.innerHTML = original;
+   }
+  });
+ });
+
+ // Foto de subcategoría — misma idea, pero guarda en la tabla subcategoria_fotos
+ // (las subcategorías son solo texto libre dentro de productos, no una tabla propia).
+ document.querySelectorAll('.subFotoBtn').forEach(btn => {
+  btn.addEventListener('click', async (e) => {
+   e.stopPropagation();
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   const catId = btn.dataset.catid;
+   const sub = btn.dataset.sub;
+   const input = document.createElement('input');
+   input.type = 'file';
+   input.accept = 'image/*';
+   input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const original = btn.textContent;
+    btn.textContent = '…';
+    try {
+     const blob = await comprimirFotoPlatillo(file);
+     const path = `subcat-${catId}-${sub.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}.jpg`;
+     const { error: upErr } = await supabase.storage.from('categorias').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+     if (upErr) throw upErr;
+     const { data: pub } = supabase.storage.from('categorias').getPublicUrl(path);
+     const { error: updErr } = await supabase.from('subcategoria_fotos').upsert(
+      { categoria_id: catId, subcategoria: sub, imagen_url: pub.publicUrl },
+      { onConflict: 'categoria_id,subcategoria' }
+     );
+     if (updErr) throw updErr;
+     btn.textContent = '✓';
+     setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch (err) {
+     alert('No se pudo subir la foto: ' + (err.message || err));
+     btn.textContent = original;
+    }
+   };
+   input.click();
   });
  });
 

@@ -6969,7 +6969,9 @@ const SUBCATEGORIA_FOTOS = {
 
 // Algunas subcategorías nuevas (con sufijo tipo "salados"/"especiales") comparten
 // foto con su "familia" original — así evitamos duplicar la misma imagen en base64.
-function fotoSubcategoria(sub) {
+function fotoSubcategoria(sub, catId) {
+  const deSupabase = SUBCATEGORIA_FOTOS_DB[catId + '|' + sub];
+  if (deSupabase) return deSupabase;
   if (SUBCATEGORIA_FOTOS[sub]) return SUBCATEGORIA_FOTOS[sub];
   if (sub.startsWith('Cuernitos')) return SUBCATEGORIA_FOTOS['Cuernitos'];
   if (sub.startsWith('Molletes') || sub === 'Mollepizza') return SUBCATEGORIA_FOTOS['Molletes'];
@@ -7126,6 +7128,12 @@ async function cargarMenu() {
     supabase.from('zonas').select('*').eq('activa', true),
     supabase.from('configuracion').select('*').eq('id', 1).maybeSingle(),
   ]);
+
+  const { data: subcatFotosData } = await supabase.from('subcategoria_fotos').select('*');
+  SUBCATEGORIA_FOTOS_DB = {};
+  (subcatFotosData || []).forEach(row => {
+    if (row.imagen_url) SUBCATEGORIA_FOTOS_DB[row.categoria_id + '|' + row.subcategoria] = row.imagen_url;
+  });
 
   CATEGORIAS = cats || [];
   PRODUCTOS = prods || [];
@@ -7345,9 +7353,11 @@ const GRUPO_SUBCAT_FOTOS = {
   'Cuernitos': 'Cuernitos',
   'Hojaldras': 'Hojaldras',
 };
-function fotoGrupoSubcat(grupo) {
+function fotoGrupoSubcat(grupo, catId) {
   const clave = GRUPO_SUBCAT_FOTOS[grupo];
-  return clave ? SUBCATEGORIA_FOTOS[clave] : undefined;
+  if (!clave) return undefined;
+  const deSupabase = SUBCATEGORIA_FOTOS_DB[catId + '|' + clave];
+  return deSupabase || SUBCATEGORIA_FOTOS[clave];
 }
 
 // Orden manual de subcategorías dentro de una categoría (de arriba hacia abajo).
@@ -7577,7 +7587,7 @@ function renderMenu() {
       <div class="grid grid-cols-2 gap-3 items-start">
         ${grupos.map(grupo => {
           const count = PRODUCTOS.filter(p => p.categoria_id === categoriaActivaId && p.grupo_subcategoria === grupo).length;
-          const foto = fotoGrupoSubcat(grupo);
+          const foto = fotoGrupoSubcat(grupo, categoriaActivaId);
           return `
             <button data-grupo="${grupo}" class="grupoTile bg-white border border-line/70 shadow-sm rounded-2xl overflow-hidden text-left hover:shadow-md hover:border-forest/40 transition flex flex-col">
               <div class="aspect-square flex items-center justify-center shrink-0" style="background: ${foto ? '#eee' : '#fff'};">
@@ -7622,7 +7632,7 @@ function renderMenu() {
         ${subs.map(sub => {
           const count = PRODUCTOS.filter(p => p.categoria_id === categoriaActivaId && p.subcategoria === sub).length;
           const subIcon = SUBCATEGORIA_ICONOS[sub] || catIcon;
-          const foto = fotoSubcategoria(sub);
+          const foto = fotoSubcategoria(sub, categoriaActivaId);
           return `
             <button data-sub="${sub}" class="subTile bg-white border border-line/70 shadow-sm rounded-2xl overflow-hidden text-left hover:shadow-md hover:border-forest/40 transition flex flex-col">
               <div class="aspect-square flex items-center justify-center shrink-0" style="background: ${foto ? '#eee' : '#fff'};">
@@ -7717,7 +7727,7 @@ function renderMenu() {
         const count = PRODUCTOS.filter(p => p.categoria_id === cat.id).length;
         if (!count) return '';
         const catIcon = CATEGORIA_ICONOS[cat.nombre] || 'plate';
-        const foto = CATEGORIA_FOTOS[cat.nombre];
+        const foto = cat.imagen_url || CATEGORIA_FOTOS[cat.nombre];
         if (foto) {
           return `
             <button data-cat="${cat.id}" class="catTile hover:shadow-md transition rounded-2xl overflow-hidden relative text-left shadow-sm" style="aspect-ratio: 4 / 5;">
@@ -9434,6 +9444,10 @@ document.getElementById('btnGuardarDatosPerfil').addEventListener('click', async
 // configuran ahí — hasta 4, ninguno fijo en el código.
 let CHEEMS_ACTIVO = true;
 let CHEEMS_PESOS_POR_UNIDAD = 100; // pesos gastados por cada Cheem ganado, editable desde el admin
+// Fotos de subcategoría subidas desde el admin (Supabase) — clave "categoria_id|subcategoria".
+// Tienen prioridad sobre las fotos fijas en el código (SUBCATEGORIA_FOTOS); si no hay ninguna
+// de las dos, cae al ícono genérico de siempre.
+let SUBCATEGORIA_FOTOS_DB = {};
 let PREMIOS_CHEEMS = []; // solo los activos, ordenados de menor a mayor cheems_necesarios
 
 // El siguiente premio que el cliente todavía no alcanza (el de menor umbral
