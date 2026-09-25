@@ -478,6 +478,7 @@
       <button id="closeMisPedidos" class="w-8 h-8 rounded-full bg-line/70 flex items-center justify-center text-lg leading-none shrink-0">&times;</button>
     </div>
     <div class="flex-1 overflow-y-auto min-h-0 p-5">
+      <div id="misFavoritosManualSection" class="mb-5"></div>
       <div id="misFavoritosSection" class="mb-5"></div>
       <div id="misPedidosList" class="space-y-3"></div>
     </div>
@@ -551,6 +552,7 @@
     </div>
     <div id="mapaUbicacionDiv" class="flex-1 min-h-0"></div>
     <div class="p-4 border-t border-line shrink-0 space-y-2">
+      <p id="mapaPrecisionTexto" class="hidden text-[12px] text-forest text-center font-medium"></p>
       <p class="text-[12px] text-muted text-center">Arrastra el pin si no quedó exacto</p>
       <button id="confirmarMapaUbicacion" class="w-full btn-gradient text-white font-display font-600 rounded-2xl py-3 text-[14px]">Usar esta ubicación</button>
     </div>
@@ -611,7 +613,17 @@ const CONFIG = {
   // detectar el GPS del cliente (o mientras carga). Pon aquí las coordenadas
   // reales del negocio — puedes sacarlas de Google Maps: clic derecho sobre
   // tu ubicación → el primer número es la latitud, el segundo la longitud.
-  UBICACION_NEGOCIO: { lat: 19.4326, lng: -99.1332 }, // placeholder: CDMX centro — CAMBIAR
+  UBICACION_NEGOCIO: { lat: 19.5159498, lng: -99.0674395 }, // Villa de Gpe Xal, Ecatepec de Morelos — coordenadas reales
+  // Tramos de costo de envío según distancia real (línea recta) al negocio.
+  // Solo se usan cuando el cliente confirma su ubicación en el mapa (GPS real) —
+  // si solo escribe la dirección a mano, se sigue usando el selector de zona
+  // manual de siempre. AJUSTA estos números a tus precios reales.
+  TRAMOS_ENVIO_POR_DISTANCIA: [
+    { hastaKm: 2, costo: 40 },
+    { hastaKm: 3, costo: 60 },
+    { hastaKm: 4, costo: 70 },
+    { hastaKm: Infinity, costo: 80 },
+  ],
 };
 
 const TRANSFERENCIA_HABILITADA = !!(CONFIG.DATOS_BANCARIOS && CONFIG.DATOS_BANCARIOS.CLABE);
@@ -7046,6 +7058,50 @@ let PROD_GRUPOS = {};
 let ZONAS = [];
 let cart = [];
 let gpsCoords = null; // {lat, lng} si el cliente usó el botón de ubicación
+
+// Distancia en línea recta entre 2 puntos (fórmula de Haversine), en km.
+function calcularDistanciaKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const radianes = (g) => g * Math.PI / 180;
+  const dLat = radianes(lat2 - lat1);
+  const dLng = radianes(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radianes(lat1)) * Math.cos(radianes(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+// Costo de envío automático según la distancia real al negocio — solo aplica
+// si el cliente confirmó su ubicación en el mapa (gpsCoords real, no adivinado).
+function costoEnvioPorDistancia() {
+  if (!gpsCoords) return null;
+  const { lat, lng } = CONFIG.UBICACION_NEGOCIO;
+  const km = calcularDistanciaKm(lat, lng, gpsCoords.lat, gpsCoords.lng);
+  const tramo = CONFIG.TRAMOS_ENVIO_POR_DISTANCIA.find(t => km <= t.hastaKm);
+  return { km, costo: tramo ? tramo.costo : 0 };
+}
+
+let usarZonaManualEnVezDeDistancia = false; // el cliente puede preferir la zona manual aunque haya usado el mapa
+
+// ---------- Favoritos manuales (corazón) ----------
+// Distinto de "Tus favoritos" (automático, por historial) y de "Favoritos de
+// la casa" (curado por el negocio) — este es el cliente marcando a mano lo
+// que le gusta, haya pedido ese platillo antes o no. Vive solo en este
+// dispositivo (preferencia personal, no un dato del negocio).
+let FAVORITOS_MANUAL = new Set();
+function cargarFavoritosManual() {
+  try { FAVORITOS_MANUAL = new Set(JSON.parse(localStorage.getItem('chilaquilems_favoritos_manual') || '[]')); }
+  catch { FAVORITOS_MANUAL = new Set(); }
+}
+function guardarFavoritosManual() {
+  localStorage.setItem('chilaquilems_favoritos_manual', JSON.stringify([...FAVORITOS_MANUAL]));
+}
+function esFavoritoManual(id) {
+  return FAVORITOS_MANUAL.has(id);
+}
+function toggleFavoritoManual(id) {
+  if (FAVORITOS_MANUAL.has(id)) FAVORITOS_MANUAL.delete(id); else FAVORITOS_MANUAL.add(id);
+  guardarFavoritosManual();
+}
+cargarFavoritosManual();
 let propinaSeleccionada = { tipo: '0', monto: 0 }; // tipo: '0' | '5' | '10' | '15' | 'otra'
 let cheemsDisponiblesCliente = 0;
 let redimirCheemsEstePedido = false;
@@ -7165,10 +7221,9 @@ async function cargarMenu() {
 
   const banner = document.getElementById('closedBanner');
   if (!TIENDA_ABIERTA) {
-    banner.textContent = '🔒 ' + (config?.mensaje_cerrado || 'Por hoy ya no estamos tomando pedidos.');
+    banner.textContent = '⏰ ' + (config?.mensaje_cerrado || 'Estamos cerrados por hoy, pero puedes armar tu pedido y te lo preparamos en cuanto abramos.');
     banner.classList.remove('hidden');
-    document.querySelectorAll('.cartBtnAll').forEach(b => b.classList.add('hidden'));
-    document.getElementById('storeStatus').textContent = 'Cerrado por hoy';
+    document.getElementById('storeStatus').textContent = 'Cerrado por hoy — pedidos programados';
   } else {
     document.getElementById('storeStatus').textContent = `${PRODUCTOS.length} platillos disponibles hoy`;
   }
@@ -7288,6 +7343,7 @@ function renderFavoritos() {
 function productCardHtml(p, catNombre) {
   const dishIcon = dishIconKeyFor(p, catNombre);
   const agotado = p.disponible === false;
+  const esFav = esFavoritoManual(p.id);
   return `
     <button data-id="${p.id}" ${agotado ? 'data-agotado="1"' : ''} class="prod-card transition text-center flex flex-col items-center ${agotado ? 'cursor-default' : ''}">
       <div class="relative w-[74%] mx-auto">
@@ -7298,6 +7354,7 @@ function productCardHtml(p, catNombre) {
           }
         </div>
         ${!agotado ? `<span class="absolute bottom-0 right-0 w-8 h-8 rounded-full btn-gradient text-white flex items-center justify-center text-lg font-bold shadow-md">+</span>` : ''}
+        <button type="button" data-favid="${p.id}" class="favHeartBtn absolute top-0 left-0 w-7 h-7 rounded-full bg-white/90 shadow-sm flex items-center justify-center text-[13px]" title="${esFav ? 'Quitar de tus favoritos' : 'Agregar a tus favoritos'}">${esFav ? '❤️' : '🤍'}</button>
       </div>
       ${agotado ? `<span class="mt-2 bg-ink/80 text-white text-[11px] font-display font-700 tracking-wide px-2.5 py-1 rounded-full">Agotado</span>` : ''}
       <div class="pt-2 px-1 ${agotado ? 'opacity-60' : ''}">
@@ -7316,6 +7373,21 @@ function attachProdCardListeners() {
       return;
     }
     btn.addEventListener('click', () => abrirProducto(btn.dataset.id));
+  });
+  document.querySelectorAll('.favHeartBtn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.favid;
+      toggleFavoritoManual(id);
+      const esFav = esFavoritoManual(id);
+      // Actualizamos en vivo todos los corazones de ese platillo en pantalla
+      // (por si aparece repetido, ej. en un resultado de búsqueda) sin
+      // volver a dibujar toda la cuadrícula — se siente más inmediato.
+      document.querySelectorAll(`.favHeartBtn[data-favid="${id}"]`).forEach(b => {
+        b.textContent = esFav ? '❤️' : '🤍';
+        b.title = esFav ? 'Quitar de tus favoritos' : 'Agregar a tus favoritos';
+      });
+    });
   });
 }
 
@@ -7823,7 +7895,6 @@ function construirPasosModal(grupos) {
 }
 
 function abrirProducto(id, editItem = null) {
-  if (!TIENDA_ABIERTA) { toast('La tienda está cerrada por hoy.', 'error'); return; }
   const p = PRODUCTOS.find(x => x.id === id);
   if (p && p.disponible === false && !editItem) { toast('Este platillo no está disponible por ahora.', 'error'); return; }
   const grupoIds = PROD_GRUPOS[id] || [];
@@ -7920,7 +7991,10 @@ function abrirProducto(id, editItem = null) {
     body.innerHTML = `
       <div class="flex justify-between items-start mb-1">
         <h3 class="font-display font-600 text-[19px] leading-snug pr-3">${p.nombre}</h3>
-        <button id="closeProduct" class="w-8 h-8 rounded-full bg-line/70 flex items-center justify-center text-lg leading-none shrink-0">&times;</button>
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="heartProduct" class="w-8 h-8 rounded-full bg-line/70 flex items-center justify-center text-[15px]" title="${esFavoritoManual(p.id) ? 'Quitar de tus favoritos' : 'Agregar a tus favoritos'}">${esFavoritoManual(p.id) ? '❤️' : '🤍'}</button>
+          <button id="closeProduct" class="w-8 h-8 rounded-full bg-line/70 flex items-center justify-center text-lg leading-none">&times;</button>
+        </div>
       </div>
       ${pasoActual === 0 && p.descripcion ? `<p class="text-muted text-[13.5px] mb-4">${p.descripcion}</p>` : '<div class="mb-3"></div>'}
       ${dots()}
@@ -7983,6 +8057,17 @@ function abrirProducto(id, editItem = null) {
     `;
 
     document.getElementById('closeProduct').onclick = cerrarProducto;
+    document.getElementById('heartProduct').onclick = () => {
+      toggleFavoritoManual(p.id);
+      const esFav = esFavoritoManual(p.id);
+      const btnCorazon = document.getElementById('heartProduct');
+      btnCorazon.textContent = esFav ? '❤️' : '🤍';
+      btnCorazon.title = esFav ? 'Quitar de tus favoritos' : 'Agregar a tus favoritos';
+      document.querySelectorAll(`.favHeartBtn[data-favid="${p.id}"]`).forEach(b => {
+        b.textContent = esFav ? '❤️' : '🤍';
+        b.title = esFav ? 'Quitar de tus favoritos' : 'Agregar a tus favoritos';
+      });
+    };
 
     if (!esUltimo) {
       body.querySelectorAll('.modOptionRow input').forEach(inp => {
@@ -8343,14 +8428,24 @@ function renderCart() {
         <p id="gpsStatus" class="${gpsCoords ? '' : 'hidden'} text-[11.5px] text-forest mt-1 font-medium">📍 Ubicación exacta capturada — el repartidor la verá en el mapa sin errores.</p>
       </div>
 
-      ${ZONAS.length ? `
+      ${(() => {
+        const envioAuto = !usarZonaManualEnVezDeDistancia ? costoEnvioPorDistancia() : null;
+        if (envioAuto) {
+          return `
+      <div class="rounded-xl border border-forest/25 bg-forest/5 px-3.5 py-2.5 flex items-center justify-between gap-2">
+        <p class="text-[12.5px] text-forestDark">🚗 Envío calculado por distancia: <strong>${fmt(envioAuto.costo)}</strong> <span class="text-muted">(~${envioAuto.km.toFixed(1)} km)</span></p>
+        ${ZONAS.length ? `<button type="button" id="btnUsarZonaManual" class="text-[11px] text-accent font-medium shrink-0 underline">usar zona manual</button>` : ''}
+      </div>`;
+        }
+        return ZONAS.length ? `
       <div>
         <label class="block text-[12px] font-medium text-muted mb-1">Zona de entrega</label>
         <select id="inpZona" class="w-full rounded-xl border border-line px-3.5 py-2.5 text-[14px] bg-white">
           <option value="">Sin costo de envío</option>
           ${ZONAS.map(z => `<option value="${z.id}" data-costo="${z.costo_envio}">${z.nombre} (+${fmt(z.costo_envio)})</option>`).join('')}
         </select>
-      </div>` : ''}
+      </div>` : '';
+      })()}
 
       <div>
         <label class="block text-[12px] font-medium text-muted mb-1.5">Forma de pago</label>
@@ -8532,8 +8627,26 @@ function renderCart() {
   ];
   camposTexto.forEach(([id, setter]) => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('input', () => { setter(el.value); guardarProgresoCheckout(); });
+    if (el) el.addEventListener('input', () => {
+      setter(el.value);
+      guardarProgresoCheckout();
+      // Si el cliente edita la dirección a mano (no fue el mapa quien la
+      // llenó — eso no dispara 'input'), ya no confiamos en el costo por
+      // distancia calculado antes; que decida la zona manual.
+      if (id === 'inpDireccion' && gpsCoords) {
+        gpsCoords = null;
+        renderCart();
+      }
+    });
   });
+
+  const btnUsarZonaManual = document.getElementById('btnUsarZonaManual');
+  if (btnUsarZonaManual) {
+    btnUsarZonaManual.addEventListener('click', () => {
+      usarZonaManualEnVezDeDistancia = true;
+      renderCart();
+    });
+  }
 
   // Mostrar la cajita de datos bancarios solo cuando el cliente elige
   // "Transferencia", y el botón para copiar únicamente el número de CLABE
@@ -8640,7 +8753,10 @@ async function confirmarPedido() {
   const mensajeRegalo = esRegalo ? document.getElementById('inpMensajeRegalo').value.trim() : '';
   const zonaSel = document.getElementById('inpZona');
   const zonaId = zonaSel ? zonaSel.value || null : null;
-  const costoEnvio = zonaSel && zonaSel.value ? Number(zonaSel.selectedOptions[0].dataset.costo) : 0;
+  const envioAutoConfirmar = !usarZonaManualEnVezDeDistancia ? costoEnvioPorDistancia() : null;
+  const costoEnvio = envioAutoConfirmar
+    ? envioAutoConfirmar.costo
+    : (zonaSel && zonaSel.value ? Number(zonaSel.selectedOptions[0].dataset.costo) : 0);
   const formaPago = document.querySelector('input[name="pago"]:checked').value;
   const propinaChecked = document.querySelector('input[name="propina"]:checked');
   let propina = 0;
@@ -8725,6 +8841,7 @@ async function confirmarPedido() {
         direccion_texto: direccion, maps_url: mapsUrl, forma_pago: formaPago,
         subtotal, costo_envio: costoEnvio, propina, total, notas: notasFinal, status: 'nuevo',
         descuento_cheems: descuentoCheems, cheems_ganados: cheemsGanadosEstePedido,
+        fuera_de_horario: !TIENDA_ABIERTA,
       }).select().single();
 
       const items = cart.map(i => ({
@@ -8746,6 +8863,7 @@ async function confirmarPedido() {
     let msg = esRegalo
       ? `🎀 *Pedido de regalo #${folio}* — ${CONFIG.NEGOCIO_NOMBRE}\n\n`
       : `🧾 *Nuevo pedido #${folio}* — ${CONFIG.NEGOCIO_NOMBRE}\n\n`;
+    if (!TIENDA_ABIERTA) msg += `⏰ *PEDIDO PROGRAMADO* — se hizo fuera de horario, prepárense en cuanto abran.\n\n`;
     let hayPrecioPendiente = false;
     cart.forEach(i => {
       msg += `▪️ ${i.cantidad}× ${i.nombre}`;
@@ -8801,6 +8919,7 @@ async function confirmarPedido() {
     checkoutTelefonoDestinatario = '';
     checkoutMensajeRegalo = '';
     gpsCoords = null;
+    usarZonaManualEnVezDeDistancia = false;
     borrarProgresoCheckout(); // pedido confirmado con éxito, ya no hay nada que recuperar
     actualizarCartUI();
     cerrarCart();
@@ -8899,9 +9018,12 @@ function restaurarProgresoCheckoutSiExiste() {
 // ============================================================
 let mapaUbicacionInstance = null;
 let mapaUbicacionMarker = null;
+let mapaUbicacionCirculo = null; // círculo de precisión GPS (radio = margen de error real)
+let mapaUbicacionWatchId = null; // id del watchPosition activo, para poder cancelarlo
 
 function abrirMapaUbicacion() {
   document.getElementById('mapaUbicacionModal').classList.remove('hidden');
+  document.getElementById('mapaPrecisionTexto').classList.add('hidden');
 
   const centroInicial = gpsCoords || CONFIG.UBICACION_NEGOCIO;
 
@@ -8923,23 +9045,61 @@ function abrirMapaUbicacion() {
   setTimeout(() => mapaUbicacionInstance.invalidateSize(), 50);
 
   // Si el navegador puede detectar el GPS real del cliente y todavía no
-  // tenía una ubicación guardada de antes, centramos ahí en cuanto responda
-  // (sin bloquear la apertura del mapa mientras tanto).
+  // tenía una ubicación guardada de antes, refinamos la lectura durante unos
+  // segundos (la primera lectura de GPS casi nunca es la más precisa) y nos
+  // quedamos con la de menor margen de error visto en ese tiempo.
   if (!gpsCoords && navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
+    let mejorPrecision = Infinity;
+    const precisionTexto = document.getElementById('mapaPrecisionTexto');
+
+    mapaUbicacionWatchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const detectado = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        mapaUbicacionInstance.setView([detectado.lat, detectado.lng], 17);
-        mapaUbicacionMarker.setLatLng([detectado.lat, detectado.lng]);
+        const { latitude, longitude, accuracy } = pos.coords;
+        if (accuracy >= mejorPrecision) return; // esta lectura es peor que la que ya teníamos, ignorarla
+        mejorPrecision = accuracy;
+
+        mapaUbicacionInstance.setView([latitude, longitude], 17);
+        mapaUbicacionMarker.setLatLng([latitude, longitude]);
+
+        if (mapaUbicacionCirculo) mapaUbicacionInstance.removeLayer(mapaUbicacionCirculo);
+        mapaUbicacionCirculo = L.circle([latitude, longitude], {
+          radius: accuracy, color: '#0F9B8E', fillColor: '#0F9B8E', fillOpacity: 0.12, weight: 1,
+        }).addTo(mapaUbicacionInstance);
+
+        precisionTexto.textContent = `📍 Precisión: ~${Math.round(accuracy)} m`;
+        precisionTexto.classList.remove('hidden');
       },
       () => { /* si falla, el cliente ya ve el mapa centrado en el negocio y puede arrastrar el pin a mano */ },
       { enableHighAccuracy: true, timeout: 8000 }
     );
+
+    // Dejamos de refinar después de ~6s (suficiente para que el chip de GPS
+    // mejore su primera lectura) — el pin se queda donde haya quedado la
+    // mejor lectura vista hasta ese momento.
+    setTimeout(() => {
+      if (mapaUbicacionWatchId !== null) {
+        navigator.geolocation.clearWatch(mapaUbicacionWatchId);
+        mapaUbicacionWatchId = null;
+      }
+    }, 6000);
+
+    // Si el cliente arrastra el pin a mano en cualquier momento, su ajuste
+    // manda — dejamos de refinar por GPS de inmediato.
+    mapaUbicacionMarker.on('dragstart', () => {
+      if (mapaUbicacionWatchId !== null) {
+        navigator.geolocation.clearWatch(mapaUbicacionWatchId);
+        mapaUbicacionWatchId = null;
+      }
+    }, { once: true });
   }
 }
 
 function cerrarMapaUbicacion() {
   document.getElementById('mapaUbicacionModal').classList.add('hidden');
+  if (mapaUbicacionWatchId !== null) {
+    navigator.geolocation.clearWatch(mapaUbicacionWatchId);
+    mapaUbicacionWatchId = null;
+  }
 }
 
 async function confirmarMapaUbicacion() {
@@ -9147,6 +9307,7 @@ document.getElementById('btnAbrirMisPedidos').addEventListener('click', () => {
 function abrirMisPedidos() {
   history.pushState({ misPedidosAbierto: true }, '', location.href);
   document.getElementById('misPedidosPanel').classList.remove('hidden');
+  renderFavoritosManual();
   renderMisFavoritos();
   renderMisPedidosList();
 }
@@ -9188,6 +9349,45 @@ document.getElementById('linkAMiPerfilDesdeCheems').addEventListener('click', ()
 // se consulta Supabase por teléfono, por la misma razón de privacidad de
 // guardarHistorialPedidoLocal): así garantizamos que nadie más pueda ver
 // los gustos de otra persona con solo saber su número.
+// "Mis favoritos" — los que el cliente marcó a mano con el corazón, haya
+// pedido ese platillo antes o no. Distinto de "Tus favoritos" (automático,
+// por historial, justo abajo de esta sección).
+function renderFavoritosManual() {
+  const cont = document.getElementById('misFavoritosManualSection');
+  if (!cont) return;
+
+  const favoritos = [...FAVORITOS_MANUAL]
+    .map(id => PRODUCTOS.find(p => p.id === id))
+    .filter(p => p); // platillos descontinuados/borrados ya no aparecen en PRODUCTOS, se ignoran solos
+
+  if (!favoritos.length) { cont.innerHTML = ''; return; }
+
+  cont.innerHTML = `
+    <p class="font-display font-700 text-[13.5px] text-ink mb-2.5">❤️ Mis favoritos</p>
+    <div class="flex flex-col gap-2 mb-1">
+      ${favoritos.map(p => `
+        <button data-favorito-manual-id="${p.id}" class="w-full text-left bg-white rounded-2xl border border-line p-3.5 flex items-center gap-3 active:bg-line/30">
+          <div class="min-w-0 flex-1">
+            <p class="font-display font-600 text-[13.5px] text-ink truncate">${p.nombre}</p>
+            <p class="text-[11.5px] text-muted">${fmtPrecio(p.precio_base)}</p>
+          </div>
+          <span class="text-forest text-[11.5px] font-display font-600 shrink-0">Pedir →</span>
+        </button>
+      `).join('')}
+    </div>
+  `;
+
+  cont.querySelectorAll('[data-favorito-manual-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const producto = PRODUCTOS.find(p => p.id === btn.dataset.favoritoManualId);
+      if (!producto) { toast('Ese platillo ya no está disponible en el menú.', 'error'); return; }
+      if (producto.disponible === false) { toast(`${producto.nombre} está agotado por ahora.`, 'error'); return; }
+      cerrarMisPedidosUI();
+      abrirProducto(producto.id);
+    });
+  });
+}
+
 function renderMisFavoritos() {
   const cont = document.getElementById('misFavoritosSection');
   if (!cont) return;
@@ -9727,6 +9927,7 @@ document.getElementById('vaciarCarrito').addEventListener('click', () => {
   checkoutTelefonoDestinatario = '';
   checkoutMensajeRegalo = '';
   gpsCoords = null;
+  usarZonaManualEnVezDeDistancia = false;
   renderCart(); actualizarCartUI(); // renderCart() con carrito vacío ya limpia el progreso guardado
   volverACategorias(true);
   toast('Carrito vacío');

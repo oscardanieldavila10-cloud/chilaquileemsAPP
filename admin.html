@@ -2253,7 +2253,7 @@ function renderPedidos(pedidos) {
     <div class="flex items-start gap-2.5">
      <input type="checkbox" class="pedidoCheckbox mt-1 w-4 h-4 rounded border-line shrink-0" data-id="${p.id}" ${pedidosSeleccionados.has(p.id) ? 'checked' : ''} />
      <div>
-      <p class="font-display font-600 text-[14.5px]">#${p.folio} — ${p.nombre_cliente}</p>
+      <p class="font-display font-600 text-[14.5px]">#${p.folio} — ${p.nombre_cliente}${p.fuera_de_horario ? ' <span class="inline-block align-middle text-[10px] bg-gold/15 text-gold font-display font-700 px-2 py-0.5 rounded-full ml-1">⏰ Programado</span>' : ''}</p>
       <p class="text-[12px] text-muted mt-0.5">${new Date(p.created_at).toLocaleString('es-MX')} · ${p.telefono}</p>
      </div>
     </div>
@@ -2590,34 +2590,35 @@ const menuCatAbiertas = new Set();
 
 function productoRowAdminHtml(p, fotoCat) {
  return `
-  <div id="prodRow-${p.id}" class="bg-white rounded-2xl border border-line shadow-sm p-3.5 flex items-center gap-2 ${!p.disponible ? 'opacity-50' : ''}">
-   <button data-id="${p.id}" data-nombre="${p.nombre}" title="Cambiar foto" class="cambiarFotoBtn w-10 h-10 rounded-xl shrink-0 flex items-center justify-center bg-[#F4F2EE] text-ink font-display font-700 text-[15px] overflow-hidden relative group">
+  <div id="prodRow-${p.id}" class="bg-white rounded-2xl border border-line shadow-sm p-4 flex items-center gap-3 ${!p.disponible ? 'opacity-50' : ''}">
+   <button data-id="${p.id}" data-nombre="${p.nombre}" title="Cambiar foto" class="cambiarFotoBtn w-16 h-16 rounded-xl shrink-0 flex items-center justify-center bg-[#F4F2EE] text-ink font-display font-700 text-[22px] overflow-hidden relative group">
     ${p.imagen_url ? `<img src="${p.imagen_url}" alt="${p.nombre}" class="w-full h-full object-cover" />` : (fotoCat ? `<img src="${fotoCat}" alt="${p.nombre}" class="w-full h-full object-cover" />` : p.nombre.charAt(0).toUpperCase())}
    </button>
-   <button data-id="${p.id}" data-disp="${p.disponible}" class="dispToggle w-9 h-6 rounded-full relative shrink-0 ${p.disponible ? 'bg-forest' : 'bg-line'}">
-    <span class="absolute top-0.5 ${p.disponible ? 'right-0.5' : 'left-0.5'} w-5 h-5 rounded-full bg-white block shadow-sm"></span>
+   <button data-id="${p.id}" data-disp="${p.disponible}" class="dispToggle w-14 h-8 rounded-full relative shrink-0 ${p.disponible ? 'bg-forest' : 'bg-line'}">
+    <span class="absolute top-1 ${p.disponible ? 'right-1' : 'left-1'} w-6 h-6 rounded-full bg-white block shadow-sm"></span>
    </button>
-   <button data-id="${p.id}" data-dest="${p.destacado}" title="Destacar en inicio (favoritos de la casa)" class="destacadoToggle w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-[16px] ${p.destacado ? 'bg-gold/15 text-gold' : 'bg-line/50 text-muted'}">★</button>
+   <button data-id="${p.id}" data-dest="${p.destacado}" title="Destacar en inicio (favoritos de la casa)" class="destacadoToggle w-11 h-11 rounded-xl shrink-0 flex items-center justify-center text-[22px] ${p.destacado ? 'bg-gold/15 text-gold' : 'bg-line/50 text-muted'}">★</button>
    <div class="flex-1 min-w-0">
-    <p class="font-display font-600 text-[14px] break-words leading-snug">${p.nombre}</p>
-    <div class="flex gap-2 mt-1.5 flex-wrap items-end">
+    <input data-id="${p.id}" type="text" value="${p.nombre}" class="nombreInput font-display font-600 text-[17px] w-full rounded-lg border border-transparent hover:border-line focus:border-forest px-1.5 -mx-1.5 py-1" />
+    <input data-id="${p.id}" type="text" value="${p.descripcion || ''}" placeholder="Descripción (opcional)" class="descripcionInput text-[13.5px] text-muted w-full rounded-lg border border-transparent hover:border-line focus:border-forest px-1.5 -mx-1.5 py-1 mt-1" />
+    <div class="flex gap-3 mt-2.5 flex-wrap items-end">
      <div>
-      <label class="block text-[9px] text-muted mb-0.5">precio</label>
-      <input data-id="${p.id}" type="number" step="0.5" value="${p.precio_base}" class="precioInput text-[13px] rounded-lg border border-line px-2 py-1 w-16 " />
+      <label class="block text-[11px] text-muted mb-1">precio</label>
+      <input data-id="${p.id}" type="number" step="0.5" value="${p.precio_base}" class="precioInput text-[16px] rounded-lg border border-line px-2.5 py-2 w-24 " />
      </div>
      <div>
-      <label class="block text-[9px] text-muted mb-0.5">costo</label>
-      <input data-id="${p.id}" type="number" step="0.5" value="${p.costo || 0}" class="costoInput text-[13px] rounded-lg border border-line px-2 py-1 w-16 " />
+      <label class="block text-[11px] text-muted mb-1">costo</label>
+      <input data-id="${p.id}" type="number" step="0.5" value="${p.costo || 0}" class="costoInput text-[16px] rounded-lg border border-line px-2.5 py-2 w-24 " />
      </div>
-     <span class="text-[11px] text-forest font-semibold pb-1 whitespace-nowrap">${marginPct(p.precio_base, p.costo)}% margen</span>
+     <span class="text-[13.5px] text-forest font-semibold pb-2 whitespace-nowrap">${marginPct(p.precio_base, p.costo)}% margen</span>
     </div>
    </div>
-   <div class="flex flex-col gap-1 shrink-0">
-    <button data-id="${p.id}" data-nombre="${p.nombre}" title="Descontinuar (quitar de la carta para siempre)" class="descontinuarBtn w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-muted hover:bg-accentSoft hover:text-accent transition">
-     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-8 0v12a2 2 0 002 2h6a2 2 0 002-2V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+   <div class="flex flex-col gap-2 shrink-0">
+    <button data-id="${p.id}" data-nombre="${p.nombre}" title="Descontinuar (quitar de la carta para siempre)" class="descontinuarBtn w-11 h-11 rounded-xl shrink-0 flex items-center justify-center text-muted hover:bg-accentSoft hover:text-accent transition">
+     <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-8 0v12a2 2 0 002 2h6a2 2 0 002-2V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
-    <button data-id="${p.id}" data-nombre="${p.nombre}" title="Borrar para siempre (solo si nunca se ha pedido)" class="borrarPlatilloBtn w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-muted hover:bg-accent/10 hover:text-accent transition">
-     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-8 0v12a2 2 0 002 2h6a2 2 0 002-2V7M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <button data-id="${p.id}" data-nombre="${p.nombre}" title="Borrar para siempre (solo si nunca se ha pedido)" class="borrarPlatilloBtn w-11 h-11 rounded-xl shrink-0 flex items-center justify-center text-muted hover:bg-accent/10 hover:text-accent transition">
+     <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-8 0v12a2 2 0 002 2h6a2 2 0 002-2V7M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
    </div>
    <input type="file" accept="image/*" data-id="${p.id}" class="fotoPlatilloInput hidden" />
@@ -2660,7 +2661,7 @@ function renderMenuAdminList(categorias, productos) {
    ? `<div class="space-y-2">${subGrupos[''].map(p => productoRowAdminHtml(p, fotoCat)).join('')}</div>`
    : subKeys.map(subNombre => `
       <div class="mb-3.5 last:mb-0">
-       ${subNombre ? `<p class="text-[11px] font-display font-700 text-muted uppercase tracking-wide mb-2 pl-1 flex items-center gap-1.5">${subNombre}<button type="button" data-catid="${cat.id}" data-sub="${subNombre}" class="subFotoBtn text-forest normal-case font-normal opacity-70 hover:opacity-100" title="Foto de esta subcategoría">📷</button></p>` : ''}
+       ${subNombre ? `<p class="text-[13px] font-display font-700 text-muted uppercase tracking-wide mb-2 pl-1 flex items-center gap-2">${subNombre}<button type="button" data-catid="${cat.id}" data-sub="${subNombre}" class="subFotoBtn text-forest normal-case font-normal text-[16px] opacity-70 hover:opacity-100" title="Foto de esta subcategoría">📷</button></p>` : ''}
        <div class="space-y-2">${subGrupos[subNombre].map(p => productoRowAdminHtml(p, fotoCat)).join('')}</div>
       </div>
      `).join('');
@@ -2668,8 +2669,8 @@ function renderMenuAdminList(categorias, productos) {
   return `
    <div class="bg-white rounded-2xl border border-line shadow-sm overflow-hidden">
     <div class="w-full flex items-center gap-2.5 p-3.5 text-left ${abierta ? 'border-b border-line bg-[#FAFAF8]' : ''}">
-     <button type="button" data-catid="${cat.id}" title="Foto de la categoría" class="catFotoBtn w-9 h-9 rounded-lg shrink-0 overflow-hidden bg-[#F4F2EE] flex items-center justify-center border border-line/60">
-      ${fotoCat ? `<img src="${fotoCat}" alt="${cat.nombre}" class="w-full h-full object-cover" />` : `<span class="text-[13px]">📷</span>`}
+     <button type="button" data-catid="${cat.id}" title="Foto de la categoría" class="catFotoBtn w-14 h-14 rounded-lg shrink-0 overflow-hidden bg-[#F4F2EE] flex items-center justify-center border border-line/60">
+      ${fotoCat ? `<img src="${fotoCat}" alt="${cat.nombre}" class="w-full h-full object-cover" />` : `<span class="text-[20px]">📷</span>`}
      </button>
      <input type="file" accept="image/*" data-catid="${cat.id}" class="catFotoInput hidden" />
      <button type="button" data-catid="${cat.id}" class="catAccordionBtn flex-1 min-w-0 flex items-center gap-2.5 text-left">
@@ -2797,6 +2798,33 @@ function renderMenuAdminList(categorias, productos) {
    if (prod) prod.destacado = nuevoValor;
    btn.dataset.dest = String(nuevoValor);
    btn.className = `destacadoToggle w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-[16px] ${nuevoValor ? 'bg-gold/15 text-gold' : 'bg-line/50 text-muted'}`;
+  });
+ });
+
+ document.querySelectorAll('.nombreInput').forEach(inp => {
+  inp.addEventListener('change', async () => {
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   const val = inp.value.trim();
+   if (!val) { alert('El nombre no puede quedar vacío.'); inp.value = menuAdminProductosCache.find(p => p.id === inp.dataset.id)?.nombre || ''; return; }
+   const { error } = await supabase.from('productos').update({ nombre: val }).eq('id', inp.dataset.id);
+   if (error) { alert('No se pudo actualizar el nombre: ' + error.message); return; }
+   const prod = menuAdminProductosCache.find(p => p.id === inp.dataset.id);
+   if (prod) prod.nombre = val;
+   // Los otros botones de esta fila (foto/descontinuar/borrar) muestran el
+   // nombre en su confirmación — los mantenemos sincronizados sin redibujar
+   // toda la fila (eso le quitaría el foco al campo mientras escribes).
+   document.querySelectorAll(`[data-id="${inp.dataset.id}"][data-nombre]`).forEach(el => { el.dataset.nombre = val; });
+  });
+ });
+
+ document.querySelectorAll('.descripcionInput').forEach(inp => {
+  inp.addEventListener('change', async () => {
+   if (DEMO_MODE) { demoBloqueado(); return; }
+   const val = inp.value.trim();
+   const { error } = await supabase.from('productos').update({ descripcion: val || null }).eq('id', inp.dataset.id);
+   if (error) { alert('No se pudo actualizar la descripción: ' + error.message); return; }
+   const prod = menuAdminProductosCache.find(p => p.id === inp.dataset.id);
+   if (prod) prod.descripcion = val;
   });
  });
 

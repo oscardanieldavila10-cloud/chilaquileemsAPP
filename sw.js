@@ -1,4 +1,4 @@
-// Service worker de Chilaquileems
+// Service worker de Desayunos Michieems
 //
 // REGLA DE ORO: la app siempre debe mostrar lo más reciente cuando hay internet.
 // Por eso usamos "red primero, caché solo como respaldo si no hay señal" — nunca
@@ -68,7 +68,7 @@ self.addEventListener('fetch', (event) => {
 // cuando Supabase manda el aviso de un pedido nuevo.
 // ============================================================
 self.addEventListener('push', (event) => {
-  let datos = { title: 'Chilaquileems', body: 'Tienes una actualización.', url: '/admin.html' };
+  let datos = { title: 'Desayunos Michieems', body: 'Tienes una actualización.', url: '/admin.html' };
   try {
     if (event.data) datos = { ...datos, ...event.data.json() };
   } catch (e) {
